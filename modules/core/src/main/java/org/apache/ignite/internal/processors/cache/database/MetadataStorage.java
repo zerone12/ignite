@@ -397,7 +397,7 @@ public class MetadataStorage implements MetaStore {
 
         /** {@inheritDoc} */
         @Override public IndexItem getLookupRow(final BPlusTree<IndexItem, ?> tree, final long pageAddr,
-            final int idx) throws IgniteCheckedException {
+            final int idx, IndexItem r) throws IgniteCheckedException {
             return readRow(pageAddr, offset(idx));
         }
 
@@ -446,7 +446,7 @@ public class MetadataStorage implements MetaStore {
         /** {@inheritDoc} */
         @Override public IndexItem getLookupRow(final BPlusTree<IndexItem, ?> tree,
             final long pageAddr,
-            final int idx) throws IgniteCheckedException {
+            final int idx, IndexItem r) throws IgniteCheckedException {
             return readRow(pageAddr, offset(idx));
         }
 

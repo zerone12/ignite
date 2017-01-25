@@ -272,6 +272,8 @@ public abstract class GridH2AbstractKeyValueRow extends GridH2Row {
                 }
             }
             else {
+                if (col != KEY_COL)
+                    System.out.println();
                 assert col == KEY_COL : col;
 
                 v = peekValue(KEY_COL);

@@ -20,6 +20,7 @@ package org.apache.ignite.internal.processors.query.h2.database;
 import java.util.List;
 import org.apache.ignite.IgniteCheckedException;
 import org.apache.ignite.IgniteException;
+import org.apache.ignite.internal.pagemem.PageUtils;
 import org.apache.ignite.internal.processors.cache.GridCacheContext;
 import org.apache.ignite.internal.processors.cache.database.IgniteCacheDatabaseSharedManager;
 import org.apache.ignite.internal.processors.cache.database.RootPage;
@@ -39,6 +40,8 @@ import org.h2.result.SearchRow;
 import org.h2.result.SortOrder;
 import org.h2.table.IndexColumn;
 import org.h2.table.TableFilter;
+import org.h2.value.Value;
+import org.h2.value.ValueInt;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -46,7 +49,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class H2TreeIndex extends GridH2IndexBase {
     /** */
-    private final H2Tree tree;
+    private final BPlusTree<SearchRow, GridH2Row> tree;
 
     /** Cache context. */
     private GridCacheContext<?, ?> cctx;
@@ -83,14 +86,66 @@ public class H2TreeIndex extends GridH2IndexBase {
 
             RootPage page = cctx.offheap().rootPageForIndex(name);
 
-            tree = new H2Tree(name, cctx.offheap().reuseListForIndex(name), cctx.cacheId(),
-                dbMgr.pageMemory(), cctx.shared().wal(), cctx.offheap().globalRemoveId(),
-                tbl.rowFactory(), page.pageId().pageId(), page.isAllocated()) {
-                @Override protected int compare(BPlusIO<SearchRow> io, long pageAddr, int idx, SearchRow row)
-                    throws IgniteCheckedException {
-                    return compareRows(getRow(io, pageAddr, idx), row);
-                }
-            };
+            if (pk || !"atomic-index".equals(tbl.spaceName())) {
+                tree = new H2Tree(name, cctx.offheap().reuseListForIndex(name), cctx.cacheId(),
+                    dbMgr.pageMemory(), cctx.shared().wal(), cctx.offheap().globalRemoveId(),
+                    tbl.rowFactory(), page.pageId().pageId(), page.isAllocated()) {
+                    @Override protected int compare(BPlusIO<SearchRow> io, long pageAddr, int idx, SearchRow row)
+                        throws IgniteCheckedException {
+                        return compareRows(getRow(io, pageAddr, idx), row);
+                    }
+                };
+            }
+            else {
+                if (colsList.size() > 2)
+                    throw new IgniteCheckedException("err1");
+
+                IndexColumn col = colsList.get(0);
+
+                if (col.column.getType() != Value.INT)
+                    throw new IgniteCheckedException("err2");
+
+                System.out.println("\n int index: " + name + "\n");
+
+                tree = new H2IntTree(name, cctx.offheap().reuseListForIndex(name), cctx.cacheId(),
+                    dbMgr.pageMemory(), cctx.shared().wal(), cctx.offheap().globalRemoveId(),
+                    tbl.rowFactory(), page.pageId().pageId(), page.isAllocated()) {
+                    @Override protected int compare(BPlusIO<SearchRow> io, long pageAddr, int idx, SearchRow row)
+                        throws IgniteCheckedException {
+                        int off = io.offset(idx);
+
+                        int intVal = PageUtils.getInt(pageAddr, off);
+
+                        Value v1 = ValueInt.get(intVal);
+                        Value v2 = row.getValue(columnIds[0]);
+                        if (v1 == null || v2 == null) {
+                            // can't compare further
+                            return 0;
+                        }
+                        int c = compareValues(v1, v2, indexColumns[0].sortType);
+                        if (c != 0) {
+                            return c;
+                        }
+
+                        SearchRow rowData = getRow(io, pageAddr, idx);
+
+                        for (int i = 1, len = indexColumns.length; i < len; i++) {
+                            int index = columnIds[i];
+                            v1 = rowData.getValue(index);
+                            v2 = row.getValue(index);
+                            if (v1 == null || v2 == null) {
+                                // can't compare further
+                                return 0;
+                            }
+                            c = compareValues(v1, v2, indexColumns[i].sortType);
+                            if (c != 0) {
+                                return c;
+                            }
+                        }
+                        return 0;
+                    }
+                };
+            }
         }
         else
             // We need indexes on the client node, but index will not contain any data.
@@ -99,10 +154,21 @@ public class H2TreeIndex extends GridH2IndexBase {
         initDistributedJoinMessaging(tbl);
     }
 
+    private int compareValues(Value a, Value b, int sortType) {
+        if (a == b) {
+            return 0;
+        }
+        int comp = table.compareTypeSafe(a, b);
+        if ((sortType & SortOrder.DESCENDING) != 0) {
+            comp = -comp;
+        }
+        return comp;
+    }
+
     /**
      * @return Tree.
      */
-    public H2Tree tree() {
+    public BPlusTree<SearchRow, GridH2Row> tree() {
         return tree;
     }
 

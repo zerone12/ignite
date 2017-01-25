@@ -45,6 +45,8 @@ public abstract class GridH2Row extends Row implements GridSearchRowPointer, Cac
     /** */
     public int partId; // TODO remove
 
+    public int colId = -1;
+
     /** {@inheritDoc} */
     @Override public long pointer() {
         throw new IllegalStateException();

@@ -25,13 +25,15 @@ import org.apache.ignite.internal.processors.cache.database.tree.BPlusTree;
 import org.apache.ignite.internal.processors.cache.database.tree.io.BPlusIO;
 import org.apache.ignite.internal.processors.cache.database.tree.reuse.ReuseList;
 import org.apache.ignite.internal.processors.query.h2.database.io.H2InnerIO;
+import org.apache.ignite.internal.processors.query.h2.database.io.H2IntInnerIO;
+import org.apache.ignite.internal.processors.query.h2.database.io.H2IntLeafIO;
 import org.apache.ignite.internal.processors.query.h2.database.io.H2LeafIO;
 import org.apache.ignite.internal.processors.query.h2.opt.GridH2Row;
 import org.h2.result.SearchRow;
 
 /**
  */
-public abstract class H2Tree extends BPlusTree<SearchRow, GridH2Row> {
+public abstract class H2IntTree extends BPlusTree<SearchRow, GridH2Row> {
     /** */
     private final H2RowFactory rowStore;
 
@@ -46,7 +48,7 @@ public abstract class H2Tree extends BPlusTree<SearchRow, GridH2Row> {
      * @param initNew Initialize new index.
      * @throws IgniteCheckedException If failed.
      */
-    public H2Tree(
+    public H2IntTree(
         String name,
         ReuseList reuseList,
         int cacheId,
@@ -57,7 +59,7 @@ public abstract class H2Tree extends BPlusTree<SearchRow, GridH2Row> {
         long metaPageId,
         boolean initNew
     ) throws IgniteCheckedException {
-        super(name, cacheId, pageMem, wal, globalRmvId, metaPageId, reuseList, H2InnerIO.VERSIONS, H2LeafIO.VERSIONS);
+        super(name, cacheId, pageMem, wal, globalRmvId, metaPageId, reuseList, H2IntInnerIO.VERSIONS, H2IntLeafIO.VERSIONS);
 
         assert rowStore != null;
 

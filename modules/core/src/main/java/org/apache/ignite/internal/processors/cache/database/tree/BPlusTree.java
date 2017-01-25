@@ -1015,7 +1015,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                         if (minRow != null && compare(io, pageAddr, i, minRow) <= 0)
                             fail("Wrong sort order: " + U.hexLong(pageId) + " , at " + i + " , minRow: " + minRow);
 
-                        minRow = io.getLookupRow(this, pageAddr, i);
+                        minRow = io.getLookupRow(this, pageAddr, i, null);
                     }
 
                     return;
@@ -1023,7 +1023,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
 
                 // To find our inner key we have to go left and then always go to the right.
                 for (int i = 0; i < cnt; i++) {
-                    L row = io.getLookupRow(this, pageAddr, i);
+                    L row = io.getLookupRow(this, pageAddr, i, null);
 
                     if (minRow != null && compare(io, pageAddr, i, minRow) <= 0)
                         fail("Min row violated: " + row + " , minRow: " + minRow);
@@ -1072,7 +1072,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                     if (cnt <= 0) // This code is called only if the tree is not empty, so we can't see empty leaf.
                         fail("Invalid leaf count: " + cnt + " " + U.hexLong(pageId));
 
-                    return io.getLookupRow(this, pageAddr, cnt - 1);
+                    return io.getLookupRow(this, pageAddr, cnt - 1, null);
                 }
 
                 long rightId = inner(io).getLeft(pageAddr, cnt);// The same as getRight(cnt - 1), but good for routing pages.
@@ -1258,7 +1258,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             if (i != 0)
                 b.append(',');
 
-            b.append(io.isLeaf() || canGetRowFromInner ? getRow(io, pageAddr, i) : io.getLookupRow(this, pageAddr, i));
+            b.append(io.isLeaf() || canGetRowFromInner ? getRow(io, pageAddr, i) : io.getLookupRow(this, pageAddr, i, null));
         }
 
         b.append(']');
@@ -2322,7 +2322,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                     cnt = io.getCount(pageAddr);
 
                     // Last item from backward row goes up.
-                    L moveUpRow = io.getLookupRow(BPlusTree.this, pageAddr, cnt - 1);
+                    L moveUpRow = io.getLookupRow(BPlusTree.this, pageAddr, cnt - 1, row);
 
                     if (!io.isLeaf()) { // Leaf pages must contain all the links, inner pages remove moveUpLink.
                         io.setCount(pageAddr, cnt - 1);

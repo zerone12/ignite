@@ -1531,7 +1531,7 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
         }
 
         /** {@inheritDoc} */
-        @Override public CacheSearchRow getLookupRow(BPlusTree<CacheSearchRow, ?> tree, long pageAddr, int idx) {
+        @Override public CacheSearchRow getLookupRow(BPlusTree<CacheSearchRow, ?> tree, long pageAddr, int idx, CacheSearchRow r) {
             int hash = getHash(pageAddr, idx);
             long link = getLink(pageAddr, idx);
 
@@ -1597,7 +1597,7 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
         }
 
         /** {@inheritDoc} */
-        @Override public CacheSearchRow getLookupRow(BPlusTree<CacheSearchRow, ?> tree, long buf, int idx) {
+        @Override public CacheSearchRow getLookupRow(BPlusTree<CacheSearchRow, ?> tree, long buf, int idx, CacheSearchRow r) {
             int hash = getHash(buf, idx);
             long link = getLink(buf, idx);
 
@@ -1727,7 +1727,7 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
         /** {@inheritDoc} */
         @Override protected PendingRow getRow(BPlusIO<PendingRow> io, long pageAddr, int idx)
             throws IgniteCheckedException {
-            return io.getLookupRow(this, pageAddr, idx);
+            return io.getLookupRow(this, pageAddr, idx, null);
         }
     }
 
@@ -1800,7 +1800,7 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
         }
 
         /** {@inheritDoc} */
-        @Override public PendingRow getLookupRow(BPlusTree<PendingRow, ?> tree, long pageAddr, int idx)
+        @Override public PendingRow getLookupRow(BPlusTree<PendingRow, ?> tree, long pageAddr, int idx, PendingRow r)
             throws IgniteCheckedException {
             return PendingRow.createRowWithKey(((PendingEntriesTree)tree).cctx,
                 getExpireTime(pageAddr, idx),
@@ -1868,7 +1868,7 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
         }
 
         /** {@inheritDoc} */
-        @Override public PendingRow getLookupRow(BPlusTree<PendingRow, ?> tree, long pageAddr, int idx)
+        @Override public PendingRow getLookupRow(BPlusTree<PendingRow, ?> tree, long pageAddr, int idx, PendingRow r)
             throws IgniteCheckedException {
             return PendingRow.createRowWithKey(((PendingEntriesTree)tree).cctx,
                 getExpireTime(pageAddr, idx),

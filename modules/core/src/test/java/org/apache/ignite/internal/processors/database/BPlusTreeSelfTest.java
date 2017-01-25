@@ -1235,7 +1235,7 @@ public class BPlusTreeSelfTest extends GridCommonAbstractTest {
         /** {@inheritDoc} */
         @Override protected int compare(BPlusIO<Long> io, long pageAddr, int idx, Long n2)
             throws IgniteCheckedException {
-            Long n1 = io.getLookupRow(this, pageAddr, idx);
+            Long n1 = io.getLookupRow(this, pageAddr, idx, null);
 
             return Long.compare(n1, n2);
         }
@@ -1244,7 +1244,7 @@ public class BPlusTreeSelfTest extends GridCommonAbstractTest {
         @Override protected Long getRow(BPlusIO<Long> io, long pageAddr, int idx) throws IgniteCheckedException {
             assert io.canGetRow() : io;
 
-            return io.getLookupRow(this, pageAddr, idx);
+            return io.getLookupRow(this, pageAddr, idx, null);
         }
 
         /**
@@ -1402,7 +1402,7 @@ public class BPlusTreeSelfTest extends GridCommonAbstractTest {
         /** {@inheritDoc} */
         @Override public void store(long dst, int dstIdx, BPlusIO<Long> srcIo, long src, int srcIdx)
             throws IgniteCheckedException {
-            Long row = srcIo.getLookupRow(null, src, srcIdx);
+            Long row = srcIo.getLookupRow(null, src, srcIdx, null);
 
             store(dst, dstIdx, row, null);
         }
@@ -1428,7 +1428,7 @@ public class BPlusTreeSelfTest extends GridCommonAbstractTest {
         }
 
         /** {@inheritDoc} */
-        @Override public Long getLookupRow(BPlusTree<Long,?> tree, long pageAddr, int idx)
+        @Override public Long getLookupRow(BPlusTree<Long,?> tree, long pageAddr, int idx, Long r)
             throws IgniteCheckedException {
             Long row = PageUtils.getLong(pageAddr, offset(idx));
 
@@ -1497,7 +1497,7 @@ public class BPlusTreeSelfTest extends GridCommonAbstractTest {
         }
 
         /** {@inheritDoc} */
-        @Override public Long getLookupRow(BPlusTree<Long,?> tree, long pageAddr, int idx)
+        @Override public Long getLookupRow(BPlusTree<Long,?> tree, long pageAddr, int idx, Long r)
             throws IgniteCheckedException {
             return PageUtils.getLong(pageAddr, offset(idx));
         }

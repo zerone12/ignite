@@ -22,35 +22,31 @@ import org.apache.ignite.IgniteCheckedException;
 import org.apache.ignite.internal.pagemem.PageUtils;
 import org.apache.ignite.internal.processors.cache.database.tree.BPlusTree;
 import org.apache.ignite.internal.processors.cache.database.tree.io.BPlusIO;
-import org.apache.ignite.internal.processors.cache.database.tree.io.BPlusLeafIO;
+import org.apache.ignite.internal.processors.cache.database.tree.io.BPlusInnerIO;
 import org.apache.ignite.internal.processors.cache.database.tree.io.IOVersions;
-import org.apache.ignite.internal.processors.query.h2.database.H2Tree;
+import org.apache.ignite.internal.processors.query.h2.database.H2IntTree;
 import org.apache.ignite.internal.processors.query.h2.opt.GridH2Row;
 import org.h2.result.SearchRow;
 
 /**
- * Leaf page for H2 row references.
+ * Inner page for H2 row references.
  */
-public class H2LeafIO extends BPlusLeafIO<SearchRow> implements H2RowLinkIO {
+public class H2IntInnerIO extends BPlusInnerIO<SearchRow> {
     /** */
-    public static final IOVersions<H2LeafIO> VERSIONS = new IOVersions<>(
-        new H2LeafIO(1)
+    public static final IOVersions<H2IntInnerIO> VERSIONS = new IOVersions<>(
+        new H2IntInnerIO(1)
     );
 
     /**
      * @param ver Page format version.
      */
-    protected H2LeafIO(int ver) {
-        super(T_H2_REF_LEAF, ver, 8);
+    private H2IntInnerIO(int ver) {
+        super(T_H2_INT_REF_INNER, ver, true, 12);
     }
 
     /** {@inheritDoc} */
     @Override public void storeByOffset(ByteBuffer buf, int off, SearchRow row) {
-        GridH2Row row0 = (GridH2Row)row;
-
-        assert row0.link != 0;
-
-        buf.putLong(off, row0.link);
+        throw new UnsupportedOperationException();
     }
 
     /** {@inheritDoc} */
@@ -59,26 +55,45 @@ public class H2LeafIO extends BPlusLeafIO<SearchRow> implements H2RowLinkIO {
 
         assert row0.link != 0;
 
-        PageUtils.putLong(pageAddr, off, row0.link);
+        int val = row.getValue(row0.colId).getInt();
+        assert val >= 0;
+
+        PageUtils.putInt(pageAddr, off, val);
+        PageUtils.putLong(pageAddr, off + 4, row0.link);
+    }
+
+    /** {@inheritDoc} */
+    @Override public SearchRow getLookupRow(BPlusTree<SearchRow,?> tree, long pageAddr, int idx, SearchRow r)
+        throws IgniteCheckedException {
+        long link = getLink(pageAddr, idx);
+
+        assert link != 0;
+
+        GridH2Row r0 = ((H2IntTree)tree).getRowFactory().getRow(link);
+
+        if (r != null)
+            r0.colId = ((GridH2Row)r).colId;
+
+        return r0;
     }
 
     /** {@inheritDoc} */
     @Override public void store(long dstPageAddr, int dstIdx, BPlusIO<SearchRow> srcIo, long srcPageAddr, int srcIdx) {
-        assert srcIo == this;
+        int srcOff = srcIo.offset(srcIdx);
 
-        PageUtils.putLong(dstPageAddr, offset(dstIdx), getLink(srcPageAddr, srcIdx));
+        int val = PageUtils.getInt(srcPageAddr, srcOff);
+        long link = PageUtils.getInt(srcPageAddr, srcOff + 4);
+
+        assert link != 0;
+        assert val >= 0;
+
+        int dstOff = offset(dstIdx);
+
+        PageUtils.putInt(dstPageAddr, dstOff, val);
+        PageUtils.putLong(dstPageAddr, dstOff + 4, link);
     }
 
-    /** {@inheritDoc} */
-    @Override public SearchRow getLookupRow(BPlusTree<SearchRow,?> tree, long pageAddr, int idx, SearchRow row)
-        throws IgniteCheckedException {
-        long link = getLink(pageAddr, idx);
-
-        return ((H2Tree)tree).getRowFactory().getRow(link);
-    }
-
-    /** {@inheritDoc} */
-    @Override public long getLink(long pageAddr, int idx) {
-        return PageUtils.getLong(pageAddr, offset(idx));
+    private long getLink(long pageAddr, int idx) {
+        return PageUtils.getLong(pageAddr, offset(idx) + 4);
     }
 }
