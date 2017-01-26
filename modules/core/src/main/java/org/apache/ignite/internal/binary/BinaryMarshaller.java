@@ -67,6 +67,15 @@ public class BinaryMarshaller extends AbstractNodeNameAwareMarshaller {
     }
 
     /**
+     * Returns currently set {@link MarshallerContext}.
+     *
+     * @return Marshaller context.
+     */
+    public MarshallerContext getContext() {
+        return ctx;
+    }
+
+    /**
      * Sets {@link BinaryContext}.
      * <p/>
      * @param ctx Binary context.

@@ -80,6 +80,12 @@ public abstract class BinaryObjectExImpl implements BinaryObjectEx {
     }
 
     /**
+     * @param order Field order.
+     * @return Field offset.
+     */
+    protected abstract int fieldOffsetByOrder(int order);
+
+    /**
      * Get offset of data begin.
      *
      * @return Field value.

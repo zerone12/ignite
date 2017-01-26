@@ -580,6 +580,14 @@ public abstract class GridIndexingSpiAbstractSelfTest extends GridCommonAbstract
                 @Override public boolean key() {
                     return false;
                 }
+
+                @Override public int propertyOffset(long keyAddr, int keyLen, long valAddr, int valLen) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override public int propertyOffset(CacheObject key, CacheObject val, CacheObjectContext ctx) {
+                    throw new UnsupportedOperationException();
+                }
             };
         }
 

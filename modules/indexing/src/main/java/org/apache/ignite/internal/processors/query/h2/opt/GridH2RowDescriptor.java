@@ -23,6 +23,7 @@ import org.apache.ignite.internal.processors.cache.CacheObject;
 import org.apache.ignite.internal.processors.cache.KeyCacheObject;
 import org.apache.ignite.internal.processors.cache.version.GridCacheVersion;
 import org.apache.ignite.internal.processors.cache.GridCacheContext;
+import org.apache.ignite.internal.processors.query.GridQueryProperty;
 import org.apache.ignite.internal.processors.query.GridQueryTypeDescriptor;
 import org.apache.ignite.internal.processors.query.h2.IgniteH2Indexing;
 import org.apache.ignite.internal.util.offheap.unsafe.GridOffHeapSmartPointerFactory;
@@ -177,4 +178,15 @@ public interface GridH2RowDescriptor extends GridOffHeapSmartPointerFactory<Grid
      * @return Escape all identifiers.
      */
     public boolean quoteAllIdentifiers();
+
+    /**
+     * @return Key type.
+     */
+    public int keyType();
+
+    /**
+     * @param col Column index.
+     * @return Property descriptor.
+     */
+    public GridQueryProperty property(int col);
 }

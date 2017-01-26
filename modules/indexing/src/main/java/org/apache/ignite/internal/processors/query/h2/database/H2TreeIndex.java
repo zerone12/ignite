@@ -25,10 +25,13 @@ import org.apache.ignite.internal.processors.cache.database.IgniteCacheDatabaseS
 import org.apache.ignite.internal.processors.cache.database.RootPage;
 import org.apache.ignite.internal.processors.cache.database.tree.BPlusTree;
 import org.apache.ignite.internal.processors.cache.database.tree.io.BPlusIO;
-import org.apache.ignite.internal.processors.query.h2.*;
-import org.apache.ignite.internal.processors.query.h2.opt.*;
-import org.apache.ignite.internal.util.*;
-import org.apache.ignite.internal.util.lang.*;
+import org.apache.ignite.internal.processors.query.h2.H2Cursor;
+import org.apache.ignite.internal.processors.query.h2.database.io.H2RowLinkIO;
+import org.apache.ignite.internal.processors.query.h2.opt.GridH2IndexBase;
+import org.apache.ignite.internal.processors.query.h2.opt.GridH2Row;
+import org.apache.ignite.internal.processors.query.h2.opt.GridH2Table;
+import org.apache.ignite.internal.util.IgniteTree;
+import org.apache.ignite.internal.util.lang.GridCursor;
 import org.apache.ignite.lang.IgniteBiPredicate;
 import org.apache.ignite.spi.indexing.IndexingQueryFilter;
 import org.h2.engine.Session;
@@ -88,7 +91,10 @@ public class H2TreeIndex extends GridH2IndexBase {
                 tbl.rowFactory(), page.pageId().pageId(), page.isAllocated()) {
                 @Override protected int compare(BPlusIO<SearchRow> io, long pageAddr, int idx, SearchRow row)
                     throws IgniteCheckedException {
-                    return compareRows(getRow(io, pageAddr, idx), row);
+                    long link = ((H2RowLinkIO)io).getLink(pageAddr, idx);
+
+                    return getRowFactory().compareRows(link, row, H2TreeIndex.this);
+                    //return compareRows(getRow(io, pageAddr, idx), row);
                 }
             };
         }
@@ -97,6 +103,10 @@ public class H2TreeIndex extends GridH2IndexBase {
             tree = null;
 
         initDistributedJoinMessaging(tbl);
+    }
+
+    public int[] columnIds() {
+        return columnIds;
     }
 
     /**

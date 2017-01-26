@@ -352,6 +352,29 @@ public final class BinaryObjectImpl extends BinaryObjectExImpl implements Extern
     }
 
     /** {@inheritDoc} */
+    @Override protected int fieldOffsetByOrder(int order) {
+        int schemaOff = BinaryPrimitives.readInt(arr, start + GridBinaryMarshaller.SCHEMA_OR_RAW_OFF_POS);
+
+        short flags = BinaryPrimitives.readShort(arr, start + GridBinaryMarshaller.FLAGS_POS);
+
+        int fieldIdLen = BinaryUtils.isCompactFooter(flags) ? 0 : BinaryUtils.FIELD_ID_LEN;
+        int fieldOffLen = BinaryUtils.fieldOffsetLength(flags);
+
+        int fieldOffPos = start + schemaOff + order * (fieldIdLen + fieldOffLen) + fieldIdLen;
+
+        int fieldOff;
+
+        if (fieldOffLen == BinaryUtils.OFFSET_1)
+            fieldOff = ((int)BinaryPrimitives.readByte(arr, fieldOffPos) & 0xFF);
+        else if (fieldOffLen == BinaryUtils.OFFSET_2)
+            fieldOff = ((int)BinaryPrimitives.readShort(arr, fieldOffPos) & 0xFFFF);
+        else
+            fieldOff = BinaryPrimitives.readInt(arr, fieldOffPos);
+
+        return fieldOff;
+    }
+
+    /** {@inheritDoc} */
     @SuppressWarnings("unchecked")
     @Nullable @Override public <F> F fieldByOrder(int order) {
         if (order == BinarySchema.ORDER_NOT_FOUND)
