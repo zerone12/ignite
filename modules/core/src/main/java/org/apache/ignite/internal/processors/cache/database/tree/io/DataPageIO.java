@@ -189,6 +189,7 @@ public class DataPageIO extends PageIO {
      * @param pageSize Page size.
      */
     private void setRealFreeSpace(long pageAddr, int freeSpace, int pageSize) {
+        assert freeSpace >= 0 : freeSpace;
         assert freeSpace == actualFreeSpace(pageAddr, pageSize) : freeSpace + " != " + actualFreeSpace(pageAddr, pageSize);
 
         PageUtils.putShort(pageAddr, FREE_SPACE_OFF, (short)freeSpace);
@@ -478,6 +479,10 @@ public class DataPageIO extends PageIO {
         return PageUtils.getShort(pageAddr, itemOffset(idx));
     }
 
+    private short getItemByOffset(long pageAddr, int itemOff) {
+        return PageUtils.getShort(pageAddr, itemOff);
+    }
+
     /**
      * @param pageAddr Page address.
      * @param idx Item index.
@@ -751,19 +756,22 @@ public class DataPageIO extends PageIO {
         final int pageSize
     ) throws IgniteCheckedException {
         assert rowSize <= getFreeSpace(pageAddr): "can't call addRow if not enough space for the whole row";
+        assert row.link() == 0;
 
         int fullEntrySize = getPageEntrySize(rowSize, SHOW_PAYLOAD_LEN | SHOW_ITEM);
 
         int directCnt = getDirectCount(pageAddr);
         int indirectCnt = getIndirectCount(pageAddr);
 
-        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize);
+        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize, row);
 
-        writeRowData(pageAddr, dataOff, rowSize, row, true);
+        if (row.link() == 0) {
+            writeRowData(pageAddr, dataOff, rowSize, row, true);
 
-        int itemId = addItem(pageAddr, fullEntrySize, directCnt, indirectCnt, dataOff, pageSize);
+            int itemId = addItem(pageAddr, fullEntrySize, directCnt, indirectCnt, dataOff, pageSize);
 
-        setLink(row, pageAddr, itemId);
+            setLink(row, pageAddr, itemId);
+        }
     }
 
     /**
@@ -786,7 +794,7 @@ public class DataPageIO extends PageIO {
         int directCnt = getDirectCount(pageAddr);
         int indirectCnt = getIndirectCount(pageAddr);
 
-        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize);
+        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize, null);
 
         writeRowData(pageAddr, dataOff, payload);
 
@@ -808,12 +816,13 @@ public class DataPageIO extends PageIO {
         final int directCnt,
         final int indirectCnt,
         int dataOff,
-        int pageSize
-    ) {
+        int pageSize,
+        CacheDataRow row
+    ) throws IgniteCheckedException {
         if (!isEnoughSpace(entryFullSize, dataOff, directCnt, indirectCnt)) {
-            dataOff = compactDataEntries(pageAddr, directCnt, pageSize);
+            dataOff = compactDataEntries(pageAddr, directCnt, indirectCnt, pageSize, entryFullSize, row);
 
-            assert isEnoughSpace(entryFullSize, dataOff, directCnt, indirectCnt);
+            assert dataOff == 0 || isEnoughSpace(entryFullSize, dataOff, directCnt, indirectCnt);
         }
 
         return dataOff;
@@ -860,11 +869,16 @@ public class DataPageIO extends PageIO {
      * @param pageSize Page size.
      * @return Offset in the buffer where the entry must be written.
      */
-    private int getDataOffsetForWrite(long pageAddr, int fullEntrySize, int directCnt, int indirectCnt, int pageSize) {
+    private int getDataOffsetForWrite(long pageAddr,
+        int fullEntrySize,
+        int directCnt,
+        int indirectCnt,
+        int pageSize,
+        CacheDataRow row) throws IgniteCheckedException {
         int dataOff = getFirstEntryOffset(pageAddr);
 
         // Compact if we do not have enough space for entry.
-        dataOff = compactIfNeed(pageAddr, fullEntrySize, directCnt, indirectCnt, dataOff, pageSize);
+        dataOff = compactIfNeed(pageAddr, fullEntrySize, directCnt, indirectCnt, dataOff, pageSize, row);
 
         // We will write data right before the first entry.
         dataOff -= fullEntrySize - ITEM_SIZE;
@@ -946,7 +960,7 @@ public class DataPageIO extends PageIO {
             Math.min(rowSize - written, getFreeSpace(pageAddr));
 
         int fullEntrySize = getPageEntrySize(payloadSize, SHOW_PAYLOAD_LEN | SHOW_LINK | SHOW_ITEM);
-        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize);
+        int dataOff = getDataOffsetForWrite(pageAddr, fullEntrySize, directCnt, indirectCnt, pageSize, null);
 
         if (payload == null) {
             ByteBuffer buf = pageMem.pageBuffer(pageAddr);
@@ -1197,18 +1211,85 @@ public class DataPageIO extends PageIO {
      * @param pageSize Page size.
      * @return New first entry offset.
      */
-    private int compactDataEntries(long pageAddr, int directCnt, int pageSize) {
+    private int compactDataEntries(long pageAddr,
+        int directCnt,
+        int indirectCnt,
+        int pageSize,
+        int newEntrySize,
+        CacheDataRow row) throws IgniteCheckedException {
         assert checkCount(directCnt): directCnt;
 
         int[] offs = new int[directCnt];
 
+        int itemOff = ITEMS_OFF;
+
         for (int i = 0; i < directCnt; i++) {
-            int off = directItemToOffset(getItem(pageAddr, i));
+            int off = directItemToOffset(getItemByOffset(pageAddr, itemOff));
 
             offs[i] = (off << 8) | i; // This way we'll be able to sort by offset using Arrays.sort(...).
+
+            itemOff += ITEM_SIZE;
         }
 
         Arrays.sort(offs);
+
+        if (row != null) {
+            boolean canAddItem = false;
+
+            if (indirectCnt > 0) {
+                short item = getItemByOffset(pageAddr, itemOff);
+
+                if (itemId(item) == directCnt)
+                    canAddItem = true;
+            }
+
+            if (!canAddItem) {
+                int firstOff = offs[0] >>> 8;
+                canAddItem = firstOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
+            }
+
+            if (!canAddItem)
+                row = null;
+        }
+
+
+//        {
+//            if (row != null) {
+//                int off = offs[0] >>> 8;
+//                int size = getPageEntrySize(pageAddr, off, SHOW_PAYLOAD_LEN | SHOW_LINK);
+//
+//                for (int i = 1; i < directCnt; i++) {
+//                    int off1 = offs[i] >>> 8;
+//
+//                    int end = (off + size);
+//
+//                    int free = off1 - end;
+//
+//                    if (free >= newEntrySize) {
+//                        int newEntryOff = end;
+//
+//                        writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
+//
+//                        int itemId = insertItem(pageAddr, newEntryOff, directCnt, indirectCnt, pageSize);
+//
+//                        assert checkIndex(itemId): itemId;
+//                        assert getIndirectCount(pageAddr) <= getDirectCount(pageAddr);
+//
+//                        // Update free space. If number of indirect items changed, then we were able to reuse an item slot.
+//                        setRealFreeSpace(pageAddr,
+//                            getRealFreeSpace(pageAddr) - newEntrySize + (getIndirectCount(pageAddr) != indirectCnt ? ITEM_SIZE : 0),
+//                            pageSize);
+//
+//                        setLink(row, pageAddr, itemId);
+//
+//                        return 0;
+//                    }
+//
+//                    off = off1;
+//                    size = getPageEntrySize(pageAddr, off, SHOW_PAYLOAD_LEN | SHOW_LINK);
+//                }
+//            }
+//        }
 
         // Move right all of the entries if possible to make the page as compact as possible to its tail.
         int prevOff = pageSize;
@@ -1226,7 +1307,27 @@ public class DataPageIO extends PageIO {
             int entrySize = curEntrySize;
 
             if (delta != 0) { // Move right.
-                assert delta > 0: delta;
+                assert delta > 0 : delta;
+
+                if (row != null && delta >= newEntrySize) {
+                    int newEntryOff = curOff + curEntrySize;
+
+                    writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
+
+                    int itemId = insertItem(pageAddr, newEntryOff, directCnt, indirectCnt, pageSize);
+
+                    assert checkIndex(itemId): itemId;
+                    assert getIndirectCount(pageAddr) <= getDirectCount(pageAddr);
+
+                    // Update free space. If number of indirect items changed, then we were able to reuse an item slot.
+                    setRealFreeSpace(pageAddr,
+                        getRealFreeSpace(pageAddr) - newEntrySize + (getIndirectCount(pageAddr) != indirectCnt ? ITEM_SIZE : 0),
+                        pageSize);
+
+                    setLink(row, pageAddr, itemId);
+
+                    return 0;
+                }
 
                 int itemId = offs[i] & 0xFF;
 
