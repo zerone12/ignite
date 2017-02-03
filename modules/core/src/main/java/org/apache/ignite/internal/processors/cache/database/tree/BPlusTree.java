@@ -279,47 +279,111 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                     return NOT_FOUND;
             }
 
-            assert !io.isLeaf() : io;
+            return searchDown(pageAddr, io, g, needBackIfRouting, cnt, idx);
+        }
+    };
 
-            // If idx == cnt then we go right down, else left down: getLeft(cnt) == getRight(cnt - 1).
-            g.pageId = inner(io).getLeft(pageAddr, idx);
+    /**
+     * @param pageAddr Page address.
+     * @param io Page IO.
+     * @param g Operation.
+     * @param needBackIfRouting Need back flag.
+     * @param cnt Page items count.
+     * @param idx Insertion point index.
+     * @return Result.
+     * @throws IgniteCheckedException If failed.
+     */
+    private Result searchDown(long pageAddr, BPlusIO<L> io, Get g, boolean needBackIfRouting, int cnt, int idx)
+        throws IgniteCheckedException {
+        assert !io.isLeaf() : io;
 
-            // If we see the tree in consistent state, then our right down page must be forward for our left down page,
-            // we need to setup fwdId and/or backId to be able to check this invariant on lower level.
-            if (idx < cnt) {
-                // Go left down here.
-                g.fwdId = inner(io).getRight(pageAddr, idx);
+        // If idx == cnt then we go right down, else left down: getLeft(cnt) == getRight(cnt - 1).
+        g.pageId = inner(io).getLeft(pageAddr, idx);
+
+        // If we see the tree in consistent state, then our right down page must be forward for our left down page,
+        // we need to setup fwdId and/or backId to be able to check this invariant on lower level.
+        if (idx < cnt) {
+            // Go left down here.
+            g.fwdId = inner(io).getRight(pageAddr, idx);
+        }
+        else {
+            // Go right down here or it is an empty branch.
+            assert idx == cnt;
+
+            // Here child's forward is unknown to us (we either go right or it is an empty "routing" page),
+            // need to ask our forward about the child's forward (it must be leftmost child of our forward page).
+            // This is ok from the locking standpoint because we take all locks in the forward direction.
+            long fwdId = io.getForward(pageAddr);
+
+            // Setup fwdId.
+            if (fwdId == 0)
+                g.fwdId = 0;
+            else {
+                // We can do askNeighbor on forward page here because we always take locks in forward direction.
+                Result res = askNeighbor(fwdId, g, false);
+
+                if (res != FOUND) {
+                    assert res == RETRY || res == RETRY_ROOT : res;
+
+                    return res; // Retry.
+                }
+            }
+
+            // Setup backId.
+            if (cnt != 0) // It is not a routing page and we are going to the right, can get backId here.
+                g.backId = inner(io).getLeft(pageAddr, cnt - 1);
+            else if (needBackIfRouting) {
+                // Can't get backId here because of possible deadlock and it is only needed for remove operation.
+                return GO_DOWN_X;
+            }
+        }
+
+        return GO_DOWN;
+    }
+
+    /** */
+    private final GetPageHandler<Get> searchAndWrite = new SearchAndWrite();
+
+    /**
+     *
+     */
+    private class SearchAndWrite extends Search {
+        /** {@inheritDoc} */
+        @Override public Result run0(Page page, long pageAddr, BPlusIO<L> io, Get g, int lvl)
+            throws IgniteCheckedException {
+            Put p = (Put)g;
+
+            if (io.getForward(pageAddr) != g.fwdId)
+                return RETRY;
+
+            boolean needBackIfRouting = g.backId != 0;
+
+            int cnt = io.getCount(pageAddr);
+            int idx = findInsertionPoint(io, pageAddr, 0, cnt, g.row, g.shift);
+
+            boolean found = idx >= 0;
+
+            if (found) {
+                if (g.found(io, pageAddr, idx, lvl)) {
+                    doReplace(page, pageAddr, io, p, lvl, idx);
+
+                    return FOUND;
+                }
             }
             else {
-                // Go right down here or it is an empty branch.
-                assert idx == cnt;
+                if (g.notFound(io, pageAddr, idx, lvl)) {
+                    if (idx >= 0) // We do not support concurrent put of the same key.
+                        throw new IllegalStateException("Duplicate row in index.");
 
-                // Here child's forward is unknown to us (we either go right or it is an empty "routing" page),
-                // need to ask our forward about the child's forward (it must be leftmost child of our forward page).
-                // This is ok from the locking standpoint because we take all locks in the forward direction.
-                long fwdId = io.getForward(pageAddr);
+                    idx = fix(idx);
 
-                // Setup fwdId.
-                if (fwdId == 0)
-                    g.fwdId = 0;
-                else {
-                    // We can do askNeighbor on forward page here because we always take locks in forward direction.
-                    Result res = askNeighbor(fwdId, g, false);
+                    doInsert(page, pageAddr, io, p, lvl, idx);
 
-                    if (res != FOUND)
-                        return res; // Retry.
-                }
-
-                // Setup backId.
-                if (cnt != 0) // It is not a routing page and we are going to the right, can get backId here.
-                    g.backId = inner(io).getLeft(pageAddr, cnt - 1);
-                else if (needBackIfRouting) {
-                    // Can't get backId here because of possible deadlock and it is only needed for remove operation.
-                    return GO_DOWN_X;
+                    return FOUND;
                 }
             }
 
-            return GO_DOWN;
+            return searchDown(pageAddr, io, g, needBackIfRouting, cnt, idx);
         }
     };
 
@@ -345,31 +409,46 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             if (idx < 0) // Not found, split or merge happened.
                 return RETRY;
 
-            // Replace link at idx with new one.
-            // Need to read link here because `p.finish()` will clear row.
-            L newRow = p.row;
-
-            // Detach the old row if we are on a leaf page.
-            if (lvl == 0) {
-                assert p.oldRow == null;
-
-                // Get old row in leaf page to reduce contention at upper level.
-                p.oldRow = p.needOld ? getRow(io, pageAddr, idx) : (T)Boolean.TRUE;
-
-                p.finish();
-
-                // Inner replace state must be consistent by the end of the operation.
-                assert p.needReplaceInner == FALSE || p.needReplaceInner == DONE : p.needReplaceInner;
-            }
-
-            io.store(pageAddr, idx, newRow, null);
-
-            if (needWalDeltaRecord(page))
-                wal.log(new ReplaceRecord<>(cacheId, page.id(), io, newRow, null, idx));
-
-            return FOUND;
+            return doReplace(page, pageAddr, io, p, lvl, idx);
         }
     };
+
+    /**
+     * @param page Page.
+     * @param pageAddr Page address.
+     * @param io Page IO.
+     * @param p Operation.
+     * @param lvl Level.
+     * @param idx Insertion point index.
+     * @return Result.
+     * @throws IgniteCheckedException If failed.
+     */
+    private Result doReplace(Page page, long pageAddr, BPlusIO<L> io, Put p, int lvl, int idx)
+        throws IgniteCheckedException {
+        // Replace link at idx with new one.
+        // Need to read link here because `p.finish()` will clear row.
+        L newRow = p.row;
+
+        // Detach the old row if we are on a leaf page.
+        if (lvl == 0) {
+            assert p.oldRow == null;
+
+            // Get old row in leaf page to reduce contention at upper level.
+            p.oldRow = p.needOld ? getRow(io, pageAddr, idx) : (T)Boolean.TRUE;
+
+            p.finish();
+
+            // Inner replace state must be consistent by the end of the operation.
+            assert p.needReplaceInner == FALSE || p.needReplaceInner == DONE : p.needReplaceInner;
+        }
+
+        io.store(pageAddr, idx, newRow, null);
+
+        if (needWalDeltaRecord(page))
+            wal.log(new ReplaceRecord<>(cacheId, page.id(), io, newRow, null, idx));
+
+        return FOUND;
+    }
 
     /** */
     private final GetPageHandler<Put> insert = new Insert();
@@ -395,27 +474,42 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
 
             idx = fix(idx);
 
-            // Do insert.
-            L moveUpRow = p.insert(page, io, pageAddr, idx, lvl);
-
-            // Check if split happened.
-            if (moveUpRow != null) {
-                p.btmLvl++; // Get high.
-                p.row = moveUpRow;
-
-                // Here forward page can't be concurrently removed because we keep write lock on tail which is the only
-                // page who knows about the forward page, because it was just produced by split.
-                p.rightId = io.getForward(pageAddr);
-                p.tail(page, pageAddr);
-
-                assert p.rightId != 0;
-            }
-            else
-                p.finish();
-
-            return FOUND;
+            return doInsert(page, pageAddr, io, p, lvl, idx);
         }
     };
+
+    /**
+     * @param page Page.
+     * @param pageAddr Page address.
+     * @param io Page IO.
+     * @param p Operation.
+     * @param lvl Level.
+     * @param idx Insertion point index.
+     * @return Result.
+     * @throws IgniteCheckedException If failed.
+     */
+    private Result doInsert(Page page, long pageAddr, BPlusIO<L> io, Put p, int lvl, int idx)
+        throws IgniteCheckedException {
+        // Do insert.
+        L moveUpRow = p.insert(page, io, pageAddr, idx, lvl);
+
+        // Check if split happened.
+        if (moveUpRow != null) {
+            p.btmLvl++; // Get high.
+            p.row = moveUpRow;
+
+            // Here forward page can't be concurrently removed because we keep write lock on tail which is the only
+            // page who knows about the forward page, because it was just produced by split.
+            p.rightId = io.getForward(pageAddr);
+            p.tail(page, pageAddr);
+
+            assert p.rightId != 0;
+        }
+        else
+            p.finish();
+
+        return FOUND;
+    }
 
     /** */
     private final GetPageHandler<Remove> rmvFromLeaf = new RemoveFromLeaf();
@@ -1942,7 +2036,17 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                 p.pageId = pageId;
                 p.fwdId = fwdId;
 
-                Result res = readPage(page, this, search, p, lvl, RETRY);
+                Result res;
+
+                if (lvl == 0) { // Optimistically try write lock and update page.
+                    res = writePage(pageMem, page, this, searchAndWrite, p, lvl, RETRY);
+
+                    assert res != NOT_FOUND && res != GO_DOWN && res != GO_DOWN_X : res;
+
+                    return res;
+                }
+                else
+                    res = readPage(page, this, search, p, lvl, RETRY);
 
                 switch (res) {
                     case GO_DOWN:
@@ -1987,20 +2091,16 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
 
                     case FOUND: // Do replace.
                         assert lvl == 0 : "This replace can happen only at the bottom level.";
-
-                        // Init args.
-                        p.pageId = pageId;
-                        p.fwdId = fwdId;
+                        assert p.pageId == pageId;
+                        assert p.fwdId == fwdId;
 
                         return writePage(pageMem, page, this, replace, p, lvl, RETRY);
 
                     case NOT_FOUND: // Do insert.
                         assert lvl == p.btmLvl : "must insert at the bottom level";
                         assert p.needReplaceInner == FALSE : p.needReplaceInner + " " + lvl;
-
-                        // Init args.
-                        p.pageId = pageId;
-                        p.fwdId = fwdId;
+                        assert p.pageId == pageId;
+                        assert p.fwdId == fwdId;
 
                         return writePage(pageMem, page, this, insert, p, lvl, RETRY);
 
