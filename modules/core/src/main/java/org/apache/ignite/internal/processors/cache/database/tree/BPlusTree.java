@@ -3588,6 +3588,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
      * @param row Lookup row.
      * @param shift Shift if equal.
      * @return Insertion point as in {@link Arrays#binarySearch(Object[], Object, Comparator)}.
+     * @throws IgniteCheckedException If failed.
      */
     private int findInsertionPoint(BPlusIO<L> io, long buf, int low, int cnt, L row, int shift)
         throws IgniteCheckedException {
@@ -3659,6 +3660,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
     }
 
     /**
+     * @param io Page IO.
      * @param pageAddr Page address.
      * @param idx Index of row in the given buffer.
      * @param row Lookup row.
