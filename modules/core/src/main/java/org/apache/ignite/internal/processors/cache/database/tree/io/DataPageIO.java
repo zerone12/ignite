@@ -1283,7 +1283,7 @@ public class DataPageIO extends PageIO {
         int pageSize,
         int newEntrySize,
         CacheDataRow row) throws IgniteCheckedException {
-        //cnt.increment();
+        cnt.increment();
 
         assert checkCount(directCnt): directCnt;
 
@@ -1308,7 +1308,7 @@ public class DataPageIO extends PageIO {
                         assert size >= 0 && size < pageSize : size;
 
                         if (size >= newEntrySize) {
-                            // foundCnt.increment();
+                            foundCnt.increment();
 
                             int newEntryOff = rmvdItem >>> 16;
 
