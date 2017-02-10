@@ -29,8 +29,10 @@ import org.apache.ignite.internal.processors.cache.CacheObject;
 import org.apache.ignite.internal.processors.cache.database.CacheDataRow;
 import org.apache.ignite.internal.processors.cache.database.tree.util.PageHandler;
 import org.apache.ignite.internal.processors.cache.version.GridCacheVersion;
+import org.apache.ignite.internal.util.GridUnsafe;
 import org.apache.ignite.internal.util.typedef.internal.SB;
 import org.jetbrains.annotations.Nullable;
+import org.jsr166.LongAdder8;
 
 /**
  * Data pages IO.
@@ -63,7 +65,19 @@ public class DataPageIO extends PageIO {
     private static final int INDIRECT_CNT_OFF = DIRECT_CNT_OFF + 1;
 
     /** */
-    private static final int FIRST_ENTRY_OFF = INDIRECT_CNT_OFF + 1;
+    private static final int REMOVED_CNT_OFF = INDIRECT_CNT_OFF + 1;
+
+    /** */
+    private static final int REMOVED_ITEMS_OFF = REMOVED_CNT_OFF + 1;
+
+    /** */
+    private static final int MAX_REMOVED_CNT = 8;
+
+    /** */
+    private static final int REMOVED_ITEM_SIZE = 4;
+
+    /** */
+    private static final int FIRST_ENTRY_OFF = REMOVED_ITEMS_OFF + MAX_REMOVED_CNT * REMOVED_ITEM_SIZE;
 
     /** */
     private static final int ITEMS_OFF = FIRST_ENTRY_OFF + 2;
@@ -107,6 +121,12 @@ public class DataPageIO extends PageIO {
         setIndirectCount(pageAddr, 0);
         setFirstEntryOffset(pageAddr, pageSize, pageSize);
         setRealFreeSpace(pageAddr, pageSize - ITEMS_OFF, pageSize);
+
+        clearRemoved(pageAddr);
+    }
+
+    private void clearRemoved(long pageAddr) {
+        GridUnsafe.setMemory(pageAddr + REMOVED_CNT_OFF, MAX_REMOVED_CNT * REMOVED_ITEM_SIZE + 1, (byte)0);
     }
 
     /**
@@ -251,6 +271,24 @@ public class DataPageIO extends PageIO {
      */
     private int getDirectCount(long pageAddr) {
         return PageUtils.getByte(pageAddr, DIRECT_CNT_OFF) & 0xFF;
+    }
+
+    private void setRemovedCount(long pageAddr, int cnt) {
+        assert cnt >= 0 && cnt <= MAX_REMOVED_CNT : cnt;
+
+        PageUtils.putByte(pageAddr, REMOVED_CNT_OFF, (byte)cnt);
+    }
+
+    /**
+     * @param pageAddr Page address.
+     * @return Direct count.
+     */
+    private int getRemovedCount(long pageAddr) {
+        int cnt = PageUtils.getByte(pageAddr, REMOVED_CNT_OFF) & 0xFF;
+
+        assert cnt >= 0 && cnt <= MAX_REMOVED_CNT : cnt;
+
+        return cnt;
     }
 
     /**
@@ -665,6 +703,20 @@ public class DataPageIO extends PageIO {
         else {
             // Get the entry size before the actual remove.
             int rmvEntrySize = getPageEntrySize(pageAddr, dataOff, SHOW_PAYLOAD_LEN | SHOW_LINK);
+
+            if (false && getFirstEntryOffset(pageAddr) == dataOff)
+                setFirstEntryOffset(pageAddr, getFirstEntryOffset(pageAddr) + rmvEntrySize, pageSize);
+            else {
+                int rmvdCnt = getRemovedCount(pageAddr);
+
+                if (rmvdCnt < MAX_REMOVED_CNT) {
+                    int item = dataOff << 16 | (rmvEntrySize & 0xFFFF);
+
+                    PageUtils.putInt(pageAddr, REMOVED_ITEMS_OFF + rmvdCnt * REMOVED_ITEM_SIZE, item);
+
+                    setRemovedCount(pageAddr, rmvdCnt + 1);
+                }
+            }
 
             int indirectId = 0;
 
@@ -1205,6 +1257,20 @@ public class DataPageIO extends PageIO {
         return directCnt; // Previous directCnt will be our itemId.
     }
 
+    private boolean canAddItem(long pageAddr, int directCnt, int indirectCnt, int firstEntryOff) {
+        if (indirectCnt > 0) {
+            short item = getItemByOffset(pageAddr, ITEMS_OFF + directCnt * ITEM_SIZE);
+
+            if (itemId(item) == directCnt)
+                return true;
+        }
+
+        return firstEntryOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
+    }
+
+    public final static LongAdder8 cnt = new LongAdder8();
+    public final static LongAdder8 foundCnt = new LongAdder8();
+
     /**
      * @param pageAddr Page address.
      * @param directCnt Direct items count.
@@ -1217,7 +1283,82 @@ public class DataPageIO extends PageIO {
         int pageSize,
         int newEntrySize,
         CacheDataRow row) throws IgniteCheckedException {
+        //cnt.increment();
+
         assert checkCount(directCnt): directCnt;
+
+        int rmvdCnt = getRemovedCount(pageAddr);
+
+        Boolean canAddItem = null;
+
+        if (rmvdCnt > 0 && row != null) {
+            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
+
+            if (canAddItem) {
+                int cnt = 0;
+
+                int rmvdItemOff = REMOVED_ITEMS_OFF;
+
+                for (int i = 0; i < MAX_REMOVED_CNT; i++) {
+                    int rmvdItem = PageUtils.getInt(pageAddr, rmvdItemOff);
+
+                    if (rmvdItem != 0) {
+                        int size = rmvdItem & 0xFFFF;
+
+                        assert size >= 0 && size < pageSize : size;
+
+                        if (size >= newEntrySize) {
+                            // foundCnt.increment();
+
+                            int newEntryOff = rmvdItem >>> 16;
+
+                            try {
+                                assert newEntryOff > ITEMS_OFF && newEntryOff < pageSize /*&& newEntryOff != getFirstEntryOffset(pageAddr)*/ :
+                                    "new=" + newEntryOff +
+                                    ", first=" + getFirstEntryOffset(pageAddr) +
+                                    ", size=" + size +
+                                    ", newSize=" + newEntrySize +
+                                    ", free=" + actualFreeSpace(pageAddr, pageSize) +
+                                    ", page=" + printPageLayout(pageAddr, pageSize);
+
+                                writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
+
+                                int itemId = insertItem(pageAddr, newEntryOff, directCnt, indirectCnt, pageSize);
+
+                                assert checkIndex(itemId) : itemId;
+                                assert getIndirectCount(pageAddr) <= getDirectCount(pageAddr);
+
+                                // Update free space. If number of indirect items changed, then we were able to reuse an item slot.
+                                setRealFreeSpace(pageAddr,
+                                    getRealFreeSpace(pageAddr) - newEntrySize + (getIndirectCount(pageAddr) != indirectCnt ? ITEM_SIZE : 0),
+                                    pageSize);
+
+                                setLink(row, pageAddr, itemId);
+
+                                PageUtils.putInt(pageAddr, rmvdItemOff, 0);
+                                setRemovedCount(pageAddr, rmvdCnt - 1);
+                            }
+                            catch (AssertionError e) {
+                                e.printStackTrace(System.out);
+
+                                System.out.println();
+
+                                throw e;
+                            }
+
+                            return 0;
+                        }
+
+                        if (++cnt == rmvdCnt)
+                            break;
+                    }
+
+                    rmvdItemOff += REMOVED_ITEM_SIZE;
+                }
+            }
+
+            row = null;
+        }
 
         int[] offs = new int[directCnt];
 
@@ -1234,19 +1375,21 @@ public class DataPageIO extends PageIO {
         Arrays.sort(offs);
 
         if (row != null) {
-            boolean canAddItem = false;
-
-            if (indirectCnt > 0) {
-                short item = getItemByOffset(pageAddr, itemOff);
-
-                if (itemId(item) == directCnt)
-                    canAddItem = true;
-            }
-
-            if (!canAddItem) {
-                int firstOff = offs[0] >>> 8;
-                canAddItem = firstOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
-            }
+            if (canAddItem == null)
+                canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
+//            boolean canAddItem = false;
+//
+//            if (indirectCnt > 0) {
+//                short item = getItemByOffset(pageAddr, itemOff);
+//
+//                if (itemId(item) == directCnt)
+//                    canAddItem = true;
+//            }
+//
+//            if (!canAddItem) {
+//                int firstOff = offs[0] >>> 8;
+//                canAddItem = firstOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
+//            }
 
             if (!canAddItem)
                 row = null;
@@ -1309,7 +1452,7 @@ public class DataPageIO extends PageIO {
             if (delta != 0) { // Move right.
                 assert delta > 0 : delta;
 
-                if (row != null && delta >= newEntrySize) {
+                if (false && row != null && delta >= newEntrySize) {
                     int newEntryOff = curOff + curEntrySize;
 
                     writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
@@ -1365,6 +1508,9 @@ public class DataPageIO extends PageIO {
 
             prevOff = off;
         }
+
+        if (rmvdCnt > 0)
+            clearRemoved(pageAddr);
 
         return prevOff;
     }
