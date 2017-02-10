@@ -872,7 +872,7 @@ public class DataPageIO extends PageIO {
         CacheDataRow row
     ) throws IgniteCheckedException {
         if (!isEnoughSpace(entryFullSize, dataOff, directCnt, indirectCnt)) {
-            dataOff = compactDataEntries(pageAddr, directCnt, indirectCnt, pageSize, entryFullSize, row);
+            dataOff = compactDataEntries(pageAddr, directCnt, indirectCnt, pageSize, entryFullSize, row, dataOff);
 
             assert dataOff == 0 || isEnoughSpace(entryFullSize, dataOff, directCnt, indirectCnt);
         }
@@ -1283,7 +1283,8 @@ public class DataPageIO extends PageIO {
         int indirectCnt,
         int pageSize,
         int newEntrySize,
-        CacheDataRow row) throws IgniteCheckedException {
+        CacheDataRow row,
+        int firstEntryOff) throws IgniteCheckedException {
         cnt.increment();
 
         assert checkCount(directCnt): directCnt;
@@ -1293,7 +1294,7 @@ public class DataPageIO extends PageIO {
         boolean canAddItem;
 
         if (rmvdCnt > 0 && row != null) {
-            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
+            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, firstEntryOff);
 
             if (canAddItem) {
                 int cnt = 0;
@@ -1403,7 +1404,7 @@ public class DataPageIO extends PageIO {
 //                int firstOff = offs[0] >>> 8;
 //                canAddItem = firstOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
 //            }
-            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
+            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, firstEntryOff);
 
             if (!canAddItem)
                 row = null;
