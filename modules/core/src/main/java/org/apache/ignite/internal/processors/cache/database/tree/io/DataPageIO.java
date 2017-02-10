@@ -1269,7 +1269,8 @@ public class DataPageIO extends PageIO {
     }
 
     public final static LongAdder8 cnt = new LongAdder8();
-    public final static LongAdder8 foundCnt = new LongAdder8();
+    public final static LongAdder8 foundCnt1 = new LongAdder8();
+    public final static LongAdder8 foundCnt2 = new LongAdder8();
 
     /**
      * @param pageAddr Page address.
@@ -1289,7 +1290,7 @@ public class DataPageIO extends PageIO {
 
         int rmvdCnt = getRemovedCount(pageAddr);
 
-        Boolean canAddItem = null;
+        boolean canAddItem = false;
 
         if (rmvdCnt > 0 && row != null) {
             canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
@@ -1308,7 +1309,7 @@ public class DataPageIO extends PageIO {
                         assert size >= 0 && size < pageSize : size;
 
                         if (size >= newEntrySize) {
-                            foundCnt.increment();
+                            foundCnt1.increment();
 
                             int newEntryOff = rmvdItem >>> 16;
 
@@ -1356,8 +1357,8 @@ public class DataPageIO extends PageIO {
                     rmvdItemOff += REMOVED_ITEM_SIZE;
                 }
             }
-
-            row = null;
+            else
+                row = null;
         }
 
         int[] offs = new int[directCnt];
@@ -1374,9 +1375,7 @@ public class DataPageIO extends PageIO {
 
         Arrays.sort(offs);
 
-        if (row != null) {
-            if (canAddItem == null)
-                canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
+        if (row != null && rmvdCnt == 0) {
 //            boolean canAddItem = false;
 //
 //            if (indirectCnt > 0) {
@@ -1390,6 +1389,7 @@ public class DataPageIO extends PageIO {
 //                int firstOff = offs[0] >>> 8;
 //                canAddItem = firstOff > (directCnt + indirectCnt) * ITEM_SIZE + ITEMS_OFF + ITEM_SIZE;
 //            }
+            canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
 
             if (!canAddItem)
                 row = null;
@@ -1452,7 +1452,9 @@ public class DataPageIO extends PageIO {
             if (delta != 0) { // Move right.
                 assert delta > 0 : delta;
 
-                if (false && row != null && delta >= newEntrySize) {
+                if (row != null && delta >= newEntrySize) {
+                    foundCnt2.increment();
+
                     int newEntryOff = curOff + curEntrySize;
 
                     writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
@@ -1468,6 +1470,9 @@ public class DataPageIO extends PageIO {
                         pageSize);
 
                     setLink(row, pageAddr, itemId);
+
+                    if (rmvdCnt > 0)
+                        clearRemoved(pageAddr);
 
                     return 0;
                 }

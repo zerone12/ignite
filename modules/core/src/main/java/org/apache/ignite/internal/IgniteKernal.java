@@ -1141,13 +1141,14 @@ public class IgniteKernal implements IgniteEx, IgniteMXBean, Externalizable {
                             String id = U.id8(localNode().id());
 
                             double cnt = DataPageIO.cnt.sumThenReset();
-                            double found = DataPageIO.foundCnt.sumThenReset();
+                            double found1 = DataPageIO.foundCnt1.sumThenReset();
+                            double found2 = DataPageIO.foundCnt2.sumThenReset();
 
                             String msg = NL +
                                 "Metrics for local node (to disable set 'metricsLogFrequency' to 0)" + NL +
                                 "    ^-- Node [id=" + id + ", name=" + name() + ", uptime=" + getUpTimeFormatted() + "]" + NL +
                                 "    ^-- H/N/C [hosts=" + hosts + ", nodes=" + nodes + ", CPUs=" + cpus + "]" + NL +
-                                "    ^-- cnt=" + cnt + ", precent=" + found / cnt * 100 + NL +
+                                "    ^-- cnt=" + cnt + ", p1=" + (found1 / cnt * 100) + ", p2=" + (found2 / cnt * 100) + NL +
                                 "    ^-- CPU [cur=" + dblFmt.format(cpuLoadPct) + "%, avg=" +
                                 dblFmt.format(avgCpuLoadPct) + "%, GC=" + dblFmt.format(gcPct) + "%]" + NL +
                                 "    ^-- PageMemory [pages=" + (pageMem != null ? pageMem.loadedPages() : 0) + "]" + NL +
