@@ -1284,13 +1284,13 @@ public class DataPageIO extends PageIO {
         int pageSize,
         int newEntrySize,
         CacheDataRow row) throws IgniteCheckedException {
-        //cnt.increment();
+        cnt.increment();
 
         assert checkCount(directCnt): directCnt;
 
         int rmvdCnt = getRemovedCount(pageAddr);
 
-        boolean canAddItem = false;
+        boolean canAddItem;
 
         if (rmvdCnt > 0 && row != null) {
             canAddItem = canAddItem(pageAddr, directCnt, indirectCnt, getFirstEntryOffset(pageAddr));
@@ -1300,6 +1300,10 @@ public class DataPageIO extends PageIO {
 
                 int rmvdItemOff = REMOVED_ITEMS_OFF;
 
+                int diff = Integer.MAX_VALUE;
+                int foundDataOff = 0;
+                int foundRmvItemOff = 0;
+
                 for (int i = 0; i < MAX_REMOVED_CNT; i++) {
                     int rmvdItem = PageUtils.getInt(pageAddr, rmvdItemOff);
 
@@ -1308,46 +1312,19 @@ public class DataPageIO extends PageIO {
 
                         assert size >= 0 && size < pageSize : size;
 
-                        if (size >= newEntrySize) {
-                            //foundCnt1.increment();
+                        int diff0 = size - newEntrySize;
 
-                            int newEntryOff = rmvdItem >>> 16;
-
-                            try {
-                                assert newEntryOff > ITEMS_OFF && newEntryOff < pageSize /*&& newEntryOff != getFirstEntryOffset(pageAddr)*/ :
-                                    "new=" + newEntryOff +
-                                    ", first=" + getFirstEntryOffset(pageAddr) +
-                                    ", size=" + size +
-                                    ", newSize=" + newEntrySize +
-                                    ", free=" + actualFreeSpace(pageAddr, pageSize) +
-                                    ", page=" + printPageLayout(pageAddr, pageSize);
-
-                                writeRowData(pageAddr, newEntryOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
-
-                                int itemId = insertItem(pageAddr, newEntryOff, directCnt, indirectCnt, pageSize);
-
-                                assert checkIndex(itemId) : itemId;
-                                assert getIndirectCount(pageAddr) <= getDirectCount(pageAddr);
-
-                                // Update free space. If number of indirect items changed, then we were able to reuse an item slot.
-                                setRealFreeSpace(pageAddr,
-                                    getRealFreeSpace(pageAddr) - newEntrySize + (getIndirectCount(pageAddr) != indirectCnt ? ITEM_SIZE : 0),
-                                    pageSize);
-
-                                setLink(row, pageAddr, itemId);
-
-                                PageUtils.putInt(pageAddr, rmvdItemOff, 0);
-                                setRemovedCount(pageAddr, rmvdCnt - 1);
+                        if (diff0 > 0) {
+                            if (diff0 < diff) {
+                                foundDataOff = rmvdItem >>> 16;
+                                diff = diff0;
+                                foundRmvItemOff = rmvdItemOff;
                             }
-                            catch (AssertionError e) {
-                                e.printStackTrace(System.out);
+                        } else if (diff0 == 0) {
+                            foundRmvItemOff = rmvdItemOff;
+                            foundDataOff = rmvdItem >>> 16;
 
-                                System.out.println();
-
-                                throw e;
-                            }
-
-                            return 0;
+                            break;
                         }
 
                         if (++cnt == rmvdCnt)
@@ -1355,6 +1332,43 @@ public class DataPageIO extends PageIO {
                     }
 
                     rmvdItemOff += REMOVED_ITEM_SIZE;
+                }
+
+                if (foundDataOff != 0) {
+                    foundCnt1.increment();
+
+                    try {
+                        assert foundDataOff > ITEMS_OFF && foundDataOff < pageSize /*&& newEntryOff != getFirstEntryOffset(pageAddr)*/ :
+                            "new=" + foundDataOff +
+                                ", first=" + getFirstEntryOffset(pageAddr) +
+                                ", newSize=" + newEntrySize +
+                                ", free=" + actualFreeSpace(pageAddr, pageSize) +
+                                ", page=" + printPageLayout(pageAddr, pageSize);
+
+                        writeRowData(pageAddr, foundDataOff, newEntrySize - ITEM_SIZE - PAYLOAD_LEN_SIZE, row, true);
+
+                        int itemId = insertItem(pageAddr, foundDataOff, directCnt, indirectCnt, pageSize);
+
+                        assert checkIndex(itemId) : itemId;
+                        assert getIndirectCount(pageAddr) <= getDirectCount(pageAddr);
+
+                        // Update free space. If number of indirect items changed, then we were able to reuse an item slot.
+                        setRealFreeSpace(pageAddr,
+                            getRealFreeSpace(pageAddr) - newEntrySize + (getIndirectCount(pageAddr) != indirectCnt ? ITEM_SIZE : 0),
+                            pageSize);
+
+                        setLink(row, pageAddr, itemId);
+
+                        PageUtils.putInt(pageAddr, foundRmvItemOff, 0);
+                        setRemovedCount(pageAddr, rmvdCnt - 1);
+                    }
+                    catch (AssertionError e) {
+                        e.printStackTrace(System.out);
+
+                        throw e;
+                    }
+
+                    return 0;
                 }
             }
             else
@@ -1453,7 +1467,7 @@ public class DataPageIO extends PageIO {
                 assert delta > 0 : delta;
 
                 if (row != null && delta >= newEntrySize) {
-                    //foundCnt2.increment();
+                    foundCnt2.increment();
 
                     int newEntryOff = curOff + curEntrySize;
 
