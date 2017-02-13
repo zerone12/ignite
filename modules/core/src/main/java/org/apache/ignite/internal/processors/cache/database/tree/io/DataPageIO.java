@@ -71,7 +71,7 @@ public class DataPageIO extends PageIO {
     private static final int REMOVED_ITEMS_OFF = REMOVED_CNT_OFF + 1;
 
     /** */
-    private static final int MAX_REMOVED_CNT = 8;
+    private static final int MAX_REMOVED_CNT = 4;
 
     /** */
     private static final int REMOVED_ITEM_SIZE = 4;
@@ -715,6 +715,22 @@ public class DataPageIO extends PageIO {
                     PageUtils.putInt(pageAddr, REMOVED_ITEMS_OFF + rmvdCnt * REMOVED_ITEM_SIZE, item);
 
                     setRemovedCount(pageAddr, rmvdCnt + 1);
+                } else if (false) {
+                    int rmvdItemOff = REMOVED_ITEMS_OFF;
+
+                    for (int i = 0; i < MAX_REMOVED_CNT; i++) {
+                        int rmvdItem = PageUtils.getInt(pageAddr, rmvdItemOff);
+                        int size = rmvdItem & 0xFFFF;
+
+                        if (rmvEntrySize > size) {
+                            int item = dataOff << 16 | (rmvEntrySize & 0xFFFF);
+                            PageUtils.putInt(pageAddr, rmvdItemOff, item);
+
+                            break;
+                        }
+
+                        rmvdItemOff += REMOVED_ITEM_SIZE;
+                    }
                 }
             }
 
@@ -1285,7 +1301,7 @@ public class DataPageIO extends PageIO {
         int newEntrySize,
         CacheDataRow row,
         int firstEntryOff) throws IgniteCheckedException {
-        cnt.increment();
+        //cnt.increment();
 
         assert checkCount(directCnt): directCnt;
 
@@ -1336,7 +1352,7 @@ public class DataPageIO extends PageIO {
                 }
 
                 if (foundDataOff != 0) {
-                    foundCnt1.increment();
+                    //foundCnt1.increment();
 
                     try {
                         assert foundDataOff > ITEMS_OFF && foundDataOff < pageSize /*&& newEntryOff != getFirstEntryOffset(pageAddr)*/ :
@@ -1468,7 +1484,7 @@ public class DataPageIO extends PageIO {
                 assert delta > 0 : delta;
 
                 if (row != null && delta >= newEntrySize) {
-                    foundCnt2.increment();
+                    //foundCnt2.increment();
 
                     int newEntryOff = curOff + curEntrySize;
 
