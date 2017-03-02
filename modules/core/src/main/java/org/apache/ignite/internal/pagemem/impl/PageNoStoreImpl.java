@@ -53,7 +53,7 @@ public class PageNoStoreImpl implements Page {
     /**
      * @return Data pointer.
      */
-    private long pointer() {
+    public long pointer() {
         return absPtr + PageMemoryNoStoreImpl.PAGE_OVERHEAD;
     }
 

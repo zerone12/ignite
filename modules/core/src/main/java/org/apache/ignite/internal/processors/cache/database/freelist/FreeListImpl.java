@@ -25,6 +25,7 @@ import org.apache.ignite.internal.pagemem.PageIdAllocator;
 import org.apache.ignite.internal.pagemem.PageIdUtils;
 import org.apache.ignite.internal.pagemem.PageMemory;
 import org.apache.ignite.internal.pagemem.PageUtils;
+import org.apache.ignite.internal.pagemem.impl.PageNoStoreImpl;
 import org.apache.ignite.internal.pagemem.wal.IgniteWriteAheadLogManager;
 import org.apache.ignite.internal.pagemem.wal.record.delta.DataPageInsertFragmentRecord;
 import org.apache.ignite.internal.pagemem.wal.record.delta.DataPageInsertRecord;
@@ -437,7 +438,10 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
         int itemId = PageIdUtils.itemId(link);
 
         try (Page page = pageMem.page(cacheId, pageId)) {
-            Boolean updated = writePage(pageMem, page, this, updateRow, row, itemId, null);
+            DataPageIO init = PageIO.getPageIO(((PageNoStoreImpl)page).pointer());
+
+            Boolean updated = updateRow.run(page, init,
+                ((PageNoStoreImpl)page).pointer(), row, itemId);
 
             assert updated != null; // Can't fail here.
 
