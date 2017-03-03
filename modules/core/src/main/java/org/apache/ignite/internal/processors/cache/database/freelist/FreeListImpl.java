@@ -437,16 +437,17 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
         long pageId = PageIdUtils.pageId(link);
         int itemId = PageIdUtils.itemId(link);
 
-        try (Page page = pageMem.page(cacheId, pageId)) {
-            DataPageIO init = PageIO.getPageIO(((PageNoStoreImpl)page).pointer());
-
-            Boolean updated = updateRow.run(page, init,
-                ((PageNoStoreImpl)page).pointer(), row, itemId);
-
-            assert updated != null; // Can't fail here.
-
-            return updated != null ? updated : false;
-        }
+//        try (Page page = pageMem.page(cacheId, pageId)) {
+//            DataPageIO init = PageIO.getPageIO(((PageNoStoreImpl)page).pointer());
+//
+//            Boolean updated = updateRow.run(page, init,
+//                ((PageNoStoreImpl)page).pointer(), row, itemId);
+//
+//            assert updated != null; // Can't fail here.
+//
+//            return updated != null ? updated : false;
+//        }
+        return true;
     }
 
     /** {@inheritDoc} */
