@@ -106,46 +106,47 @@ public class CacheDataRowAdapter implements CacheDataRow {
         do {
             PageMemory pageMem = cctx.shared().database().pageMemory();
 
-            try (Page page = page(pageId(nextLink), cctx)) {
-                long pageAddr = page.getForReadPointer(); // Non-empty data page must not be recycled.
+            long pageId = pageId(nextLink);
+            long pagePtr = pageMem.pageHandle(cctx.cacheId(), pageId);
 
-                assert pageAddr != 0L : nextLink;
+            long pageAddr = pageMem.getForReadPointer(pagePtr, pageId); // Non-empty data page must not be recycled.
 
-                try {
-                    DataPageIO io = DataPageIO.VERSIONS.forPage(pageAddr);
+            assert pageAddr != 0L : nextLink;
 
-                    DataPagePayload data = io.readPayload(pageAddr,
-                        itemId(nextLink),
-                        pageMem.pageSize());
+            try {
+                DataPageIO io = DataPageIO.VERSIONS.forPage(pageAddr);
 
-                    nextLink = data.nextLink();
+                DataPagePayload data = io.readPayload(pageAddr,
+                    itemId(nextLink),
+                    pageMem.pageSize());
 
-                    if (first) {
-                        if (nextLink == 0) {
-                            // Fast path for a single page row.
-                            readFullRow(coctx, pageAddr + data.offset(), rowData);
+                nextLink = data.nextLink();
 
-                            return;
-                        }
+                if (first) {
+                    if (nextLink == 0) {
+                        // Fast path for a single page row.
+                        readFullRow(coctx, pageAddr + data.offset(), rowData);
 
-                        first = false;
+                        return;
                     }
 
-                    ByteBuffer buf = pageMem.pageBuffer(pageAddr);
-
-                    buf.position(data.offset());
-                    buf.limit(data.offset() + data.payloadSize());
-
-                    boolean keyOnly = rowData == RowData.KEY_ONLY;
-
-                    incomplete = readFragment(coctx, buf, keyOnly, incomplete);
-
-                    if (keyOnly && key != null)
-                        return;
+                    first = false;
                 }
-                finally {
-                    page.releaseRead();
-                }
+
+                ByteBuffer buf = pageMem.pageBuffer(pageAddr);
+
+                buf.position(data.offset());
+                buf.limit(data.offset() + data.payloadSize());
+
+                boolean keyOnly = rowData == RowData.KEY_ONLY;
+
+                incomplete = readFragment(coctx, buf, keyOnly, incomplete);
+
+                if (keyOnly && key != null)
+                    return;
+            }
+            finally {
+                pageMem.releaseRead(pagePtr);
             }
         }
         while(nextLink != 0);

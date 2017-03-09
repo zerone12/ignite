@@ -41,7 +41,6 @@ import org.apache.ignite.internal.processors.cache.distributed.IgniteExternaliza
 import org.apache.ignite.internal.processors.cache.version.GridCacheVersion;
 import org.apache.ignite.internal.util.GridLongList;
 import org.apache.ignite.internal.util.tostring.GridToStringInclude;
-import org.apache.ignite.internal.util.typedef.F;
 import org.apache.ignite.internal.util.typedef.internal.CU;
 import org.apache.ignite.internal.util.typedef.internal.S;
 import org.apache.ignite.internal.util.typedef.internal.U;
@@ -244,11 +243,7 @@ public class GridNearAtomicFullUpdateRequest extends GridNearAtomicAbstractUpdat
         this.clientReq = clientReq;
         this.addDepInfo = addDepInfo;
 
-        // By default ArrayList expands to array of 10 elements on first add. We cannot guess how many entries
-        // will be added to request because of unknown affinity distribution. However, we DO KNOW how many keys
-        // participate in request. As such, we know upper bound of all collections in request. If this bound is lower
-        // than 10, we use it.
-        initSize = Math.min(maxEntryCnt, 10);
+        initSize = maxEntryCnt;
 
         keys = new ArrayList<>(initSize);
 

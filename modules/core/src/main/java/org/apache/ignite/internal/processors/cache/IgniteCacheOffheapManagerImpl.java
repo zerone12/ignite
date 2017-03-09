@@ -1462,58 +1462,59 @@ public class IgniteCacheOffheapManagerImpl extends GridCacheManagerAdapter imple
 
             PageMemory pageMem = cctx.shared().database().pageMemory();
 
-            try (Page page = page(pageId(link))) {
-                long pageAddr = page.getForReadPointer(); // Non-empty data page must not be recycled.
+            long pageId = pageId(link);
+            long pagePtr = pageMem.pageHandle(cacheId, pageId);
 
-                assert pageAddr != 0L : link;
+            long pageAddr = pageMem.getForReadPointer(pagePtr, pageId); // Non-empty data page must not be recycled.
 
-                try {
-                    DataPageIO io = DataPageIO.VERSIONS.forPage(pageAddr);
+            assert pageAddr != 0L : link;
 
-                    DataPagePayload data = io.readPayload(pageAddr,
-                        itemId(link),
-                        pageMem.pageSize());
+            try {
+                DataPageIO io = DataPageIO.VERSIONS.forPage(pageAddr);
 
-                    if (data.nextLink() == 0) {
-                        long addr = pageAddr + data.offset();
+                DataPagePayload data = io.readPayload(pageAddr,
+                    itemId(link),
+                    pageMem.pageSize());
 
-                        final int len = PageUtils.getInt(addr, 0);
+                if (data.nextLink() == 0) {
+                    long addr = pageAddr + data.offset();
 
-                        int lenCmp = Integer.compare(len, bytes.length);
+                    final int len = PageUtils.getInt(addr, 0);
 
-                        if (lenCmp != 0)
-                            return lenCmp;
+                    int lenCmp = Integer.compare(len, bytes.length);
 
-                        addr += 5; // Skip length and type byte.
+                    if (lenCmp != 0)
+                        return lenCmp;
 
-                        final int words = len / 8;
+                    addr += 5; // Skip length and type byte.
 
-                        for (int i = 0; i < words; i++) {
-                            int off = i * 8;
+                    final int words = len / 8;
 
-                            long b1 = PageUtils.getLong(addr, off);
-                            long b2 = GridUnsafe.getLong(bytes, GridUnsafe.BYTE_ARR_OFF + off);
+                    for (int i = 0; i < words; i++) {
+                        int off = i * 8;
 
-                            int cmp = Long.compare(b1, b2);
+                        long b1 = PageUtils.getLong(addr, off);
+                        long b2 = GridUnsafe.getLong(bytes, GridUnsafe.BYTE_ARR_OFF + off);
 
-                            if (cmp != 0)
-                                return cmp;
-                        }
+                        int cmp = Long.compare(b1, b2);
 
-                        for (int i = words * 8; i < len; i++) {
-                            byte b1 = PageUtils.getByte(addr, i);
-                            byte b2 = bytes[i];
-
-                            if (b1 != b2)
-                                return b1 > b2 ? 1 : -1;
-                        }
-
-                        return 0;
+                        if (cmp != 0)
+                            return cmp;
                     }
+
+                    for (int i = words * 8; i < len; i++) {
+                        byte b1 = PageUtils.getByte(addr, i);
+                        byte b2 = bytes[i];
+
+                        if (b1 != b2)
+                            return b1 > b2 ? 1 : -1;
+                    }
+
+                    return 0;
                 }
-                finally {
-                    page.releaseRead();
-                }
+            }
+            finally {
+                pageMem.releaseRead(pagePtr);
             }
 
             // TODO GG-11768.

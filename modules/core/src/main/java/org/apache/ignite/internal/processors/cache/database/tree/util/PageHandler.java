@@ -22,7 +22,6 @@ import org.apache.ignite.IgniteCheckedException;
 import org.apache.ignite.internal.pagemem.Page;
 import org.apache.ignite.internal.pagemem.PageMemory;
 import org.apache.ignite.internal.pagemem.wal.IgniteWriteAheadLogManager;
-import org.apache.ignite.internal.pagemem.wal.record.delta.InitNewPageRecord;
 import org.apache.ignite.internal.processors.cache.database.tree.io.PageIO;
 import org.apache.ignite.internal.util.GridUnsafe;
 
@@ -35,7 +34,14 @@ import static java.lang.Boolean.TRUE;
 public abstract class PageHandler<X, R> {
     /** */
     private static final PageHandler<Void, Boolean> NOOP = new PageHandler<Void, Boolean>() {
-        @Override public Boolean run(Page page, PageIO io, long pageAddr, Void arg, int intArg)
+        @Override public Boolean run(
+            Page page,
+            PageIO io,
+            long pageId,
+            long pageAddr,
+            Void arg,
+            int intArg
+        )
             throws IgniteCheckedException {
             return TRUE;
         }
@@ -44,22 +50,34 @@ public abstract class PageHandler<X, R> {
     /**
      * @param page Page.
      * @param io IO.
+     * @param pageId
      * @param pageAddr Page address.
      * @param arg Argument.
-     * @param intArg Argument of type {@code int}.
-     * @return Result.
+     * @param intArg Argument of type {@code int}.    @return Result.
      * @throws IgniteCheckedException If failed.
      */
-    public abstract R run(Page page, PageIO io, long pageAddr, X arg, int intArg)
+    public abstract R run(
+        Page page,
+        PageIO io,
+        long pageId,
+        long pageAddr,
+        X arg,
+        int intArg
+    )
         throws IgniteCheckedException;
 
     /**
      * @param page Page.
+     * @param pageId Page ID.
      * @param arg Argument.
-     * @param intArg Argument of type {@code int}.
-     * @return {@code true} If release.
+     * @param intArg Argument of type {@code int}.   @return {@code true} If release.
      */
-    public boolean releaseAfterWrite(Page page, X arg, int intArg) {
+    public boolean releaseAfterWrite(
+        Page page,
+        long pageId,
+        X arg,
+        int intArg
+    ) {
         return true;
     }
 
@@ -89,10 +107,39 @@ public abstract class PageHandler<X, R> {
         try {
             PageIO io = PageIO.getPageIO(pageAddr);
 
-            return h.run(page, io, pageAddr, arg, intArg);
+            return h.run(page, io,
+                -1,
+                pageAddr, arg, intArg);
         }
         finally {
             readUnlock(page, pageAddr, lockLsnr);
+        }
+    }
+
+    // TODO
+    public static <X, R> R readPage(
+        long pageHandle,
+        long pageId,
+        PageMemory pageMem,
+        PageHandler<X, R> h,
+        X arg,
+        int intArg,
+        R lockFailed
+    ) throws IgniteCheckedException {
+        long pageAddr = pageMem.getForReadPointer(pageHandle, pageId);
+
+        if (pageAddr == 0L)
+            return lockFailed;
+
+        try {
+            PageIO io = PageIO.getPageIO(pageAddr);
+
+            return h.run(null, io,
+                pageId,
+                pageAddr, arg, intArg);
+        }
+        finally {
+            pageMem.releaseRead(pageHandle);
         }
     }
 
@@ -227,19 +274,68 @@ public abstract class PageHandler<X, R> {
 
         try {
             if (init != null) // It is a new page and we have to initialize it.
-                doInitPage(pageMem, page, pageAddr, init, wal);
+                doInitPage(pageMem, page.id(), pageAddr, init, wal);
             else
                 init = PageIO.getPageIO(pageAddr);
 
-            res = h.run(page, init, pageAddr, arg, intArg);
+            res = h.run(page, init,
+                -1,
+                pageAddr, arg, intArg);
 
             ok = true;
         }
         finally {
             assert PageIO.getCrc(pageAddr) == 0; //TODO GG-11480
 
-            if (h.releaseAfterWrite(page, arg, intArg))
+            if (h.releaseAfterWrite(page,
+                -1,
+                arg, intArg))
                 writeUnlock(page, pageAddr, lockLsnr, ok);
+        }
+
+        return res;
+    }
+
+    public static <X, R> R writePage(
+        PageMemory pageMem,
+        long pageHandle,
+        long pageId,
+        PageLockListener lockLsnr,
+        PageHandler<X, R> h,
+        PageIO init,
+        IgniteWriteAheadLogManager wal,
+        X arg,
+        int intArg,
+        R lockFailed
+    ) throws IgniteCheckedException {
+        long pageAddr = pageMem.getForWritePointer(pageHandle, pageId);
+
+        if (pageAddr == 0L)
+            return lockFailed;
+
+        R res;
+
+        boolean ok = false;
+
+        try {
+            if (init != null) // It is a new page and we have to initialize it.
+                doInitPage(pageMem, pageId, pageAddr, init, wal);
+            else
+                init = PageIO.getPageIO(pageAddr);
+
+            res = h.run(null, init,
+                pageId,
+                pageAddr, arg, intArg);
+
+            ok = true;
+        }
+        finally {
+            assert PageIO.getCrc(pageAddr) == 0; //TODO GG-11480
+
+            if (h.releaseAfterWrite(null,
+                pageId,
+                arg, intArg))
+                pageMem.releaseWrite(pageHandle, ok);
         }
 
         return res;
@@ -247,7 +343,7 @@ public abstract class PageHandler<X, R> {
 
     /**
      * @param pageMem Page memory.
-     * @param page Page.
+//     * @param page Page.
      * @param pageAddr Page address.
      * @param init Initial IO.
      * @param wal Write ahead log.
@@ -255,23 +351,23 @@ public abstract class PageHandler<X, R> {
      */
     private static void doInitPage(
         PageMemory pageMem,
-        Page page,
+        long pageId,
         long pageAddr,
         PageIO init,
         IgniteWriteAheadLogManager wal
     ) throws IgniteCheckedException {
         assert PageIO.getCrc(pageAddr) == 0; //TODO GG-11480
 
-        long pageId = page.id();
+//        long pageId = page.id();
 
         init.initNewPage(pageAddr, pageId, pageMem.pageSize());
 
         // Here we should never write full page, because it is known to be new.
-        page.fullPageWalRecordPolicy(FALSE);
+        //page.fullPageWalRecordPolicy(FALSE); TODO
 
-        if (isWalDeltaRecordNeeded(wal, page))
-            wal.log(new InitNewPageRecord(page.fullId().cacheId(), page.id(),
-                init.getType(), init.getVersion(), pageId));
+//        if (isWalDeltaRecordNeeded(wal, page))
+//            wal.log(new InitNewPageRecord(page.fullId().cacheId(), page.id(),
+//                init.getType(), init.getVersion(), pageId));
     }
 
     /**

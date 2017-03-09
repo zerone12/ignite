@@ -98,7 +98,14 @@ public abstract class PagesList extends DataStructure {
      */
     private class CutTail extends PageHandler<Void, Boolean> {
         /** {@inheritDoc} */
-        @Override public Boolean run(Page page, PageIO pageIo, long pageAddr, Void ignore, int bucket)
+        @Override public Boolean run(
+            Page page,
+            PageIO pageIo,
+            long pageId,
+            long pageAddr,
+            Void ignore,
+            int bucket
+        )
             throws IgniteCheckedException {
             assert getPageId(pageAddr) == page.id();
 

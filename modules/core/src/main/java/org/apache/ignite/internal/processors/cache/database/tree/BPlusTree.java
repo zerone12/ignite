@@ -593,7 +593,14 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
      */
     private class CutRoot extends PageHandler<Void, Bool> {
         /** {@inheritDoc} */
-        @Override public Bool run(Page meta, PageIO iox, long pageAddr, Void ignore, int lvl)
+        @Override public Bool run(
+            Page meta,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            Void ignore,
+            int lvl
+        )
             throws IgniteCheckedException {
             // Safe cast because we should never recycle meta page until the tree is destroyed.
             BPlusMetaIO io = (BPlusMetaIO)iox;
@@ -623,7 +630,14 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
      */
     private class AddRoot extends PageHandler<Long, Bool> {
         /** {@inheritDoc} */
-        @Override public Bool run(Page meta, PageIO iox, long pageAddr, Long rootPageId, int lvl)
+        @Override public Bool run(
+            Page meta,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            Long rootPageId,
+            int lvl
+        )
             throws IgniteCheckedException {
             assert rootPageId != null;
 
@@ -654,7 +668,14 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
      */
     private class InitRoot extends PageHandler<Long, Bool> {
         /** {@inheritDoc} */
-        @Override public Bool run(Page meta, PageIO iox, long pageAddr, Long rootId, int inlineSize)
+        @Override public Bool run(
+            Page meta,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            Long rootId,
+            int inlineSize
+        )
             throws IgniteCheckedException {
             assert rootId != null;
 
@@ -1049,7 +1070,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             }
         }
         finally {
-            if (g.canRelease(page, lvl))
+            if (g.canRelease(page, lvl, pageId))
                 page.close();
         }
     }
@@ -1512,7 +1533,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         if (x.isTail(pageId, lvl))
             return FOUND; // We've already locked this page, so return that we are ok.
 
-        final Page page = page(pageId);
+        long pageHandle = pageMem.pageHandle(cacheId, pageId);
 
         try {
             for (;;) {
@@ -1521,7 +1542,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                 x.fwdId(fwdId);
                 x.backId(backId);
 
-                Result res = readPage(page, this, search, x, lvl, RETRY);
+                Result res = readPage(pageHandle, pageId, pageMem, search, x, lvl, RETRY);
 
                 switch (res) {
                     case GO_DOWN_X:
@@ -1540,7 +1561,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
 
                         // Intentional fallthrough.
                     case GO_DOWN:
-                        res = x.tryReplaceInner(page, pageId, fwdId, lvl);
+                        res = x.tryReplaceInner(null, pageId, fwdId, lvl);
 
                         if (res != RETRY)
                             res = invokeDown(x, x.pageId, x.backId, x.fwdId, lvl - 1);
@@ -1560,7 +1581,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
 
                         assert x.isRemove(); // Guarded by isFinished.
 
-                        res = x.finishOrLockTail(page, pageId, backId, fwdId, lvl);
+                        res = x.finishOrLockTail(null, pageId, backId, fwdId, lvl);
 
                         return res;
 
@@ -1568,13 +1589,13 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                         if (lvl == 0)
                             x.invokeClosure();
 
-                        return x.onNotFound(page, pageId, fwdId, lvl);
+                        return x.onNotFound(null, pageId, fwdId, lvl);
 
                     case FOUND:
                         if (lvl == 0)
                             x.invokeClosure();
 
-                        return x.onFound(page, pageId, backId, fwdId, lvl);
+                        return x.onFound(null, pageId, backId, fwdId, lvl);
 
                     default:
                         return res;
@@ -1584,8 +1605,8 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         finally {
             x.levelExit();
 
-            if (x.canRelease(page, lvl))
-                page.close();
+            if (x.canRelease(null, lvl, pageId))
+                pageMem.releasePage(pageHandle);
         }
     }
 
@@ -1728,7 +1749,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         finally {
             r.page = null;
 
-            if (r.canRelease(page, lvl))
+            if (r.canRelease(page, lvl, -1))
                 page.close();
         }
     }
@@ -2146,7 +2167,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             }
         }
         finally {
-            if (p.canRelease(page, lvl))
+            if (p.canRelease(page, lvl, -1))
                 page.close();
         }
     }
@@ -2291,9 +2312,14 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         /**
          * @param page Page.
          * @param lvl Level.
+         * @param pageId Page ID.
          * @return {@code true} If we can release the given page.
          */
-        boolean canRelease(Page page, int lvl) {
+        boolean canRelease(
+            Page page,
+            int lvl,
+            long pageId
+        ) {
             return page != null;
         }
 
@@ -2473,8 +2499,13 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         }
 
         /** {@inheritDoc} */
-        @Override boolean canRelease(Page page, int lvl) {
-            return page != null && tail != page;
+        @Override boolean canRelease(
+            Page page,
+            int lvl,
+            long pageId
+        ) {
+            return (page != null && tail != page) ||
+                (pageId != -1 && (tail == null || tail.id() != pageId));
         }
 
         /**
@@ -2694,7 +2725,17 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             this.pageId = pageId;
             this.fwdId = fwdId;
 
-            return writePage(pageMem, page, BPlusTree.this, insert, this, lvl, RETRY);
+            return writePage(
+                pageMem,
+                pageMem.pageHandle(cacheId, pageId),
+                pageId,
+                BPlusTree.this,
+                insert,
+                null,
+                null,
+                this,
+                lvl,
+                RETRY);
         }
 
         /**
@@ -2855,14 +2896,18 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         }
 
         /** {@inheritDoc} */
-        @Override boolean canRelease(Page page, int lvl) {
+        @Override boolean canRelease(
+            Page page,
+            int lvl,
+            long pageId
+        ) {
             if (page == null)
                 return false;
 
             if (op == null)
                 return true;
 
-            return op.canRelease(page, lvl);
+            return op.canRelease(page, lvl, pageId);
         }
 
         /**
@@ -3365,7 +3410,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                 return writePage(pageMem, back, BPlusTree.this, lockBackAndRmvFromLeaf, this, 0, RETRY);
             }
             finally {
-                if (canRelease(back, 0))
+                if (canRelease(back, 0, -1))
                     back.close();
             }
         }
@@ -3419,7 +3464,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
                 return writePage(pageMem, back, BPlusTree.this, lockBackAndTail, this, lvl, RETRY);
             }
             finally {
-                if (canRelease(back, lvl))
+                if (canRelease(back, lvl, -1))
                     back.close();
             }
         }
@@ -3440,7 +3485,7 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             }
             finally {
                 // If we were not able to lock forward page as tail, release the page.
-                if (canRelease(fwd, lvl))
+                if (canRelease(fwd, lvl, -1))
                     fwd.close();
             }
         }
@@ -3808,7 +3853,11 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
         }
 
         /** {@inheritDoc} */
-        @Override boolean canRelease(Page page, int lvl) {
+        @Override boolean canRelease(
+            Page page,
+            int lvl,
+            long pageId
+        ) {
             return page != null && !isTail(page.id(), lvl);
         }
 
@@ -4460,7 +4509,14 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
     private abstract class GetPageHandler<G extends Get> extends PageHandler<G, Result> {
         /** {@inheritDoc} */
         @SuppressWarnings("unchecked")
-        @Override public final Result run(Page page, PageIO iox, long pageAddr, G g, int lvl)
+        @Override public final Result run(
+            Page page,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            G g,
+            int lvl
+        )
             throws IgniteCheckedException {
             assert PageIO.getPageId(pageAddr) == page.id();
 
@@ -4488,8 +4544,13 @@ public abstract class BPlusTree<L, T extends L> extends DataStructure implements
             throws IgniteCheckedException;
 
         /** {@inheritDoc} */
-        @Override public final boolean releaseAfterWrite(Page page, G g, int lvl) {
-            return g.canRelease(page, lvl);
+        @Override public final boolean releaseAfterWrite(
+            Page page,
+            long pageId,
+            G g,
+            int lvl
+        ) {
+            return g.canRelease(page, lvl, pageId);
         }
     }
 

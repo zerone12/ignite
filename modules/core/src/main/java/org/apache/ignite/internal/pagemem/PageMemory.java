@@ -36,10 +36,67 @@ public interface PageMemory extends LifecycleAware, PageIdAllocator {
     public Page page(int cacheId, long pageId) throws IgniteCheckedException;
 
     /**
+     * Gets the page handle associated with the given page ID. Each page obtained with this method must be released by
+     * calling {@link #releasePage(long)}. This method will allocate page with given ID if it doesn't exist.
+     *
+     * @param cacheId Cache ID.
+     * @param pageId Page ID.
+     * @return Page handle.
+     * @throws IgniteCheckedException If failed.
+     */
+    public long pageHandle(int cacheId, long pageId) throws IgniteCheckedException;
+
+    /**
+     * @param pageHandle Page handle.
+     * @param pageId Page ID.
+     * @return Pointer for reading the page.
+     */
+    public long getForReadPointer(long pageHandle, long pageId);
+
+    /**
+     * Releases reserved page. Released page can be evicted from RAM after flushing modifications to disk.
+     *
+     * @param pageHandle Page handle.
+     */
+    public void releaseRead(long pageHandle);
+
+    /**
+     * @param pageHandle Page handle.
+     * @param pageId Page ID.
+     * @return ByteBuffer for modifying the page.
+     */
+    public long getForWritePointer(long pageHandle, long pageId);
+
+    /**
+     * @param pageHandle Page handle.
+     * @param pageId Page ID.
+     * @return ByteBuffer for modifying the page of {@code null} if failed to get write lock.
+     */
+    public long tryGetForWritePointer(long pageHandle, long pageId);
+
+    /**
+     * Releases reserved page. Released page can be evicted from RAM after flushing modifications to disk.
+     * @param pageHandle Page handle.
+     */
+    public void releaseWrite(long pageHandle, boolean markDirty);
+
+    /**
+     * @param pageHandle Page handle.
+     * @return {@code True} if the page was modified since the last checkpoint.
+     */
+    public boolean isDirty(long pageHandle);
+
+    /**
      * @param page Page to release.
      * @throws IgniteCheckedException If failed.
      */
     public void releasePage(Page page) throws IgniteCheckedException;
+
+    /**
+     * @param pageHandler Page to release.
+     * @throws IgniteCheckedException If failed.
+     */
+    public void releasePage(long pageHandler) throws IgniteCheckedException;
 
     /**
      * @return Page size in bytes.

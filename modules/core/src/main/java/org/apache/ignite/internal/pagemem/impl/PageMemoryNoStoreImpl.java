@@ -33,6 +33,7 @@ import org.apache.ignite.internal.pagemem.Page;
 import org.apache.ignite.internal.pagemem.PageIdUtils;
 import org.apache.ignite.internal.pagemem.PageMemory;
 import org.apache.ignite.internal.processors.cache.GridCacheSharedContext;
+import org.apache.ignite.internal.processors.cache.database.tree.io.PageIO;
 import org.apache.ignite.internal.util.GridUnsafe;
 import org.apache.ignite.internal.util.OffheapReadWriteLock;
 import org.apache.ignite.internal.util.offheap.GridOffHeapOutOfMemoryException;
@@ -275,6 +276,72 @@ public class PageMemoryNoStoreImpl implements PageMemory {
         Segment seg = segment(pageIdx);
 
         return seg.acquirePage(pageIdx, pageId);
+    }
+
+    /** {@inheritDoc} */
+    @Override public long pageHandle(
+        int cacheId,
+        long pageId
+    ) throws IgniteCheckedException {
+        int pageIdx = PageIdUtils.pageIndex(pageId);
+
+        Segment seg = segment(pageIdx);
+
+        return seg.acquirePageHandle(pageIdx);
+    }
+
+    /** {@inheritDoc} */
+    @Override public long getForReadPointer(long pageHandle, long pageId) {
+        if (readLockPage(pageHandle, PageIdUtils.tag(pageId)))
+            return pageHandle + PAGE_OVERHEAD;
+
+        return 0L;
+    }
+
+    /** {@inheritDoc} */
+    @Override public void releaseRead(long pageHandle) {
+        readUnlockPage(pageHandle);
+    }
+
+    /** {@inheritDoc} */
+    @Override public long getForWritePointer(long pageHandle, long pageId) {
+        if (writeLockPage(pageHandle, PageIdUtils.tag(pageId)))
+            return pageHandle + PAGE_OVERHEAD;
+
+        return 0L;
+    }
+
+    /** {@inheritDoc} */
+    @Override public long tryGetForWritePointer(long pageHandle, long pageId) {
+        int tag = PageIdUtils.tag(pageId);
+
+        if (tryWriteLockPage(pageHandle, tag))
+            return pageHandle + PAGE_OVERHEAD;
+
+        return 0L;
+    }
+
+    @Override public void releaseWrite(
+        long pageHandle,
+        boolean markDirty
+    ) {
+        long updatedPageId = PageIO.getPageId(pageHandle + PAGE_OVERHEAD);
+
+        writeUnlockPage(pageHandle, PageIdUtils.tag(updatedPageId));
+    }
+
+    @Override public boolean isDirty(long pageHandle) {
+        // TODO - always false for NOSTORE
+        return false;
+    }
+
+    @Override public void releasePage(long pageHandler) throws IgniteCheckedException {
+        // TODO
+//        if (trackAcquiredPages) {
+//            Segment seg = segment(PageIdUtils.pageIndex(p.id()));
+//
+//            seg.onPageRelease();
+//        }
     }
 
     /** {@inheritDoc} */
@@ -529,6 +596,21 @@ public class PageMemoryNoStoreImpl implements PageMemory {
                 acquiredPages.incrementAndGet();
 
             return new PageNoStoreImpl(PageMemoryNoStoreImpl.this, absPtr, pageId);
+        }
+
+        /**
+         * @param pageIdx Page index.
+         * @return Page handle.
+         */
+        private long acquirePageHandle(int pageIdx) {
+            long absPtr = absolute(pageIdx);
+
+            assert absPtr % 8 == 0 : absPtr;
+
+            if (trackAcquiredPages)
+                acquiredPages.incrementAndGet();
+
+            return absPtr;
         }
 
         /**

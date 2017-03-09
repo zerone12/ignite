@@ -80,7 +80,14 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
      */
     private class UpdateRowHandler extends PageHandler<CacheDataRow, Boolean> {
         /** {@inheritDoc} */
-        @Override public Boolean run(Page page, PageIO iox, long pageAddr, CacheDataRow row, int itemId)
+        @Override public Boolean run(
+            Page page,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            CacheDataRow row,
+            int itemId
+        )
             throws IgniteCheckedException {
             DataPageIO io = (DataPageIO)iox;
 
@@ -117,7 +124,14 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
      */
     private class WriteRowHandler extends PageHandler<CacheDataRow, Integer> {
         /** {@inheritDoc} */
-        @Override public Integer run(Page page, PageIO iox, long pageAddr, CacheDataRow row, int written)
+        @Override public Integer run(
+            Page page,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            CacheDataRow row,
+            int written
+        )
             throws IgniteCheckedException {
             DataPageIO io = (DataPageIO)iox;
 
@@ -229,7 +243,14 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
      */
     private class RemoveRowHandler extends PageHandler<Void, Long> {
         /** {@inheritDoc} */
-        @Override public Long run(Page page, PageIO iox, long pageAddr, Void arg, int itemId)
+        @Override public Long run(
+            Page page,
+            PageIO iox,
+            long pageId,
+            long pageAddr,
+            Void arg,
+            int itemId
+        )
             throws IgniteCheckedException {
             DataPageIO io = (DataPageIO)iox;
 
@@ -435,14 +456,13 @@ public class FreeListImpl extends PagesList implements FreeList, ReuseList {
 
         long pageId = PageIdUtils.pageId(link);
         int itemId = PageIdUtils.itemId(link);
+        long pagePtr = pageMem.pageHandle(cacheId, pageId);
 
-        try (Page page = pageMem.page(cacheId, pageId)) {
-            Boolean updated = writePage(pageMem, page, this, updateRow, row, itemId, null);
+        Boolean updated = writePage(pageMem, pagePtr, pageId, this, updateRow, null, null, row, itemId, null);
 
-            assert updated != null; // Can't fail here.
+        assert updated != null; // Can't fail here.
 
-            return updated != null ? updated : false;
-        }
+        return updated != null ? updated : false;
     }
 
     /** {@inheritDoc} */
