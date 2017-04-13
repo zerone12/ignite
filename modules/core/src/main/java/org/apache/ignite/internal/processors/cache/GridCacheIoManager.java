@@ -137,6 +137,8 @@ public class GridCacheIoManager extends GridCacheSharedManagerAdapter {
             if (log.isDebugEnabled())
                 log.debug("Received unordered cache communication message [nodeId=" + nodeId +
                     ", locId=" + cctx.localNodeId() + ", msg=" + msg + ']');
+            U.debug(log, "Received unordered cache communication message [nodeId=" + nodeId +
+                ", locId=" + cctx.localNodeId() + ", msg=" + msg + ']');
 
             final GridCacheMessage cacheMsg = (GridCacheMessage)msg;
 
@@ -936,6 +938,7 @@ public class GridCacheIoManager extends GridCacheSharedManagerAdapter {
 
         if (log.isDebugEnabled())
             log.debug("Sending cache message [msg=" + msg + ", node=" + U.toShortString(node) + ']');
+        U.debug(log, "Sending cache message [msg=" + msg + ", node=" + U.toShortString(node) + ']');
 
         int cnt = 0;
 
@@ -991,6 +994,7 @@ public class GridCacheIoManager extends GridCacheSharedManagerAdapter {
 
         if (log.isDebugEnabled())
             log.debug("Sending cache message [msg=" + msg + ", nodes=" + U.toShortString(nodes) + ']');
+        U.debug(log, "Sending cache message [msg=" + msg + ", nodes=" + U.toShortString(nodes) + ']');
 
         final Collection<UUID> leftIds = new GridLeanSet<>();
 
@@ -1166,6 +1170,7 @@ public class GridCacheIoManager extends GridCacheSharedManagerAdapter {
 
             if (log.isDebugEnabled())
                 log.debug("Sent cache message [msg=" + msg + ", node=" + U.toShortString(node) + ']');
+            U.debug(log, "Sent cache message [msg=" + msg + ", node=" + U.toShortString(node) + ']');
         }
         catch (IgniteCheckedException e) {
             if (!cctx.discovery().alive(node.id()))
