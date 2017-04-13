@@ -1729,21 +1729,21 @@ namespace Apache.Ignite.Core.Tests.Cache
         {
             var cache = Cache();
 
-            TestUtils.RunMultiThreaded(() =>
-            {
-                Random rnd = new Random();
-
-                for (int i = 0; i < 50; i++)
-                {
-                    var futs = new List<Task>();
-
-                    for (int j = 0; j < 10; j++)
-                        futs.Add(cache.PutAsync(rnd.Next(1000), i));
-
-                    foreach (var fut in futs)
-                        fut.Wait();
-                }
-            }, 5);
+//            TestUtils.RunMultiThreaded(() =>
+//            {
+//                Random rnd = new Random();
+//
+//                for (int i = 0; i < 50; i++)
+//                {
+//                    var futs = new List<Task>();
+//
+//                    for (int j = 0; j < 10; j++)
+//                        futs.Add(cache.PutAsync(rnd.Next(1000), i));
+//
+//                    foreach (var fut in futs)
+//                        fut.Wait();
+//                }
+//            }, 5);
         }
 
         [Test]
@@ -1752,91 +1752,91 @@ namespace Apache.Ignite.Core.Tests.Cache
         {
             var cache = Cache<CacheTestKey, BinarizablePerson>();
 
-            const int threads = 10;
-            const int objPerThread = 1000;
-
-            int cntr = 0;
-
-            TestUtils.RunMultiThreaded(() =>
-            {
-                // ReSharper disable once AccessToModifiedClosure
-                int threadIdx = Interlocked.Increment(ref cntr);
-
-                var futs = new List<Task>();
-
-                for (int i = 0; i < objPerThread; i++)
-                {
-                    int key = threadIdx * objPerThread + i;
-
-                    futs.Add(cache.PutAsync(new CacheTestKey(key), new BinarizablePerson("Person-" + key, key)));
-                }
-
-                foreach (var fut in futs)
-                {
-                    fut.Wait();
-
-                    Assert.IsTrue(fut.IsCompleted);
-                }
-            }, threads);
-
-            for (int i = 0; i < threads; i++)
-            {
-                int threadIdx = i + 1;
-
-                for (int j = 0; j < objPerThread; j++)
-                {
-                    int key = threadIdx * objPerThread + i;
-
-                    var p = cache.GetAsync(new CacheTestKey(key)).Result;
-
-                    Assert.IsNotNull(p);
-                    Assert.AreEqual(key, p.Age);
-                    Assert.AreEqual("Person-" + key, p.Name);
-                }
-            }
-
-            cntr = 0;
-
-            TestUtils.RunMultiThreaded(() =>
-            {
-                int threadIdx = Interlocked.Increment(ref cntr);
-
-                for (int i = 0; i < objPerThread; i++)
-                {
-                    int key = threadIdx * objPerThread + i;
-
-                    cache.PutAsync(new CacheTestKey(key), new BinarizablePerson("Person-" + key, key)).Wait();
-                }
-            }, threads);
-
-            cntr = 0;
-
-            TestUtils.RunMultiThreaded(() =>
-            {
-                int threadIdx = Interlocked.Increment(ref cntr);
-
-                var futs = new List<Task<BinarizablePerson>>();
-
-                for (int i = 0; i < objPerThread; i++)
-                {
-                    int key = threadIdx * objPerThread + i;
-
-                    futs.Add(cache.GetAsync(new CacheTestKey(key)));
-                }
-
-                for (int i = 0; i < objPerThread; i++)
-                {
-                    var fut = futs[i];
-
-                    int key = threadIdx * objPerThread + i;
-
-                    var p = fut.Result;
-
-                    Assert.IsNotNull(p);
-                    Assert.AreEqual(key, p.Age);
-                    Assert.AreEqual("Person-" + key, p.Name);
-                }
-            }, threads);
+//            const int threads = 10;
+//            const int objPerThread = 1000;
+//
+//            int cntr = 0;
+//
+//            TestUtils.RunMultiThreaded(() =>
+//            {
+//                // ReSharper disable once AccessToModifiedClosure
+//                int threadIdx = Interlocked.Increment(ref cntr);
+//
+//                var futs = new List<Task>();
+//
+//                for (int i = 0; i < objPerThread; i++)
+//                {
+//                    int key = threadIdx * objPerThread + i;
+//
+//                    futs.Add(cache.PutAsync(new CacheTestKey(key), new BinarizablePerson("Person-" + key, key)));
+//                }
+//
+//                foreach (var fut in futs)
+//                {
+//                    fut.Wait();
+//
+//                    Assert.IsTrue(fut.IsCompleted);
+//                }
+//            }, threads);
+//
+//            for (int i = 0; i < threads; i++)
+//            {
+//                int threadIdx = i + 1;
+//
+//                for (int j = 0; j < objPerThread; j++)
+//                {
+//                    int key = threadIdx * objPerThread + i;
+//
+//                    var p = cache.GetAsync(new CacheTestKey(key)).Result;
+//
+//                    Assert.IsNotNull(p);
+//                    Assert.AreEqual(key, p.Age);
+//                    Assert.AreEqual("Person-" + key, p.Name);
+//                }
+//            }
+//
+//            cntr = 0;
+//
+//            TestUtils.RunMultiThreaded(() =>
+//            {
+//                int threadIdx = Interlocked.Increment(ref cntr);
+//
+//                for (int i = 0; i < objPerThread; i++)
+//                {
+//                    int key = threadIdx * objPerThread + i;
+//
+//                    cache.PutAsync(new CacheTestKey(key), new BinarizablePerson("Person-" + key, key)).Wait();
+//                }
+//            }, threads);
+//
+//            cntr = 0;
+//
+//            TestUtils.RunMultiThreaded(() =>
+//            {
+//                int threadIdx = Interlocked.Increment(ref cntr);
+//
+//                var futs = new List<Task<BinarizablePerson>>();
+//
+//                for (int i = 0; i < objPerThread; i++)
+//                {
+//                    int key = threadIdx * objPerThread + i;
+//
+//                    futs.Add(cache.GetAsync(new CacheTestKey(key)));
+//                }
+//
+//                for (int i = 0; i < objPerThread; i++)
+//                {
+//                    var fut = futs[i];
+//
+//                    int key = threadIdx * objPerThread + i;
+//
+//                    var p = fut.Result;
+//
+//                    Assert.IsNotNull(p);
+//                    Assert.AreEqual(key, p.Age);
+//                    Assert.AreEqual("Person-" + key, p.Name);
+//                }
+//            }, threads);
         }
 
         //[Test]
