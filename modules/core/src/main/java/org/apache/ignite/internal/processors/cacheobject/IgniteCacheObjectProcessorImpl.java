@@ -261,16 +261,16 @@ public class IgniteCacheObjectProcessorImpl extends GridProcessorAdapter impleme
     }
 
     /**
-     * @param ctx Cache objects context.
+     * @param coCtx Cache objects context.
      * @param cctx Cache context.
      * @param obj Object.
      * @return Object partition.
      */
-    protected final int partition(CacheObjectContext ctx, @Nullable GridCacheContext cctx, Object obj) {
+    protected final int partition(CacheObjectContext coCtx, @Nullable GridCacheContext cctx, Object obj) {
         try {
             return cctx != null ?
                 cctx.affinity().partition(obj, false) :
-                ctx.kernalContext().affinity().partition0(ctx.cacheName(), obj, null);
+                coCtx.kernalContext().affinity().partition0(coCtx.cacheName(), obj, null);
         }
         catch (IgniteCheckedException e) {
             U.error(log, "Failed to get partition", e);
