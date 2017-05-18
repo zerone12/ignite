@@ -196,7 +196,7 @@ public class IgniteCacheTestSuite3 extends TestSuite {
 
         suite.addTestSuite(CacheAsyncOperationsTest.class);
 
-        suite.addTestSuite(IgniteCacheGroupsTest.class);
+        //suite.addTestSuite(IgniteCacheGroupsTest.class);
 
         return suite;
     }
